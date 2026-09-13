@@ -68,8 +68,18 @@ func TestCreateTransportOptions(t *testing.T) {
 				"httpHeaderValue2": "keep-me",
 			},
 		}
-
-		opts, err := CreateTransportOptions(context.Background(), settings, backend.NewLoggerWith("logger", "test"))
+		jsonData, err := models.ParsePromOptions(settings)
+		require.NoError(t, err)
+		opts, err := CreateTransportOptions(
+			context.Background(),
+			settings,
+			jsonData.HTTPMethod,
+			string(jsonData.CustomQueryParameters),
+			float64(jsonData.MaxSamplesProcessedWarningThreshold),
+			float64(jsonData.MaxSamplesProcessedErrorThreshold),
+			bool(jsonData.QueryStatsEnabled),
+			backend.NewLoggerWith("logger", "test"),
+		)
 
 		require.NoError(t, err)
 		require.Empty(t, opts.Header.Get("Accept-Encoding"))
