@@ -25,8 +25,18 @@ func TestDecode(t *testing.T) {
 			body:     body,
 		},
 		{
+			name:     "identity",
+			encoding: "identity",
+			body:     body,
+		},
+		{
 			name:     "gzip",
 			encoding: "gzip",
+			body:     gzipBody(t, body),
+		},
+		{
+			name:     "gzip is case-insensitive",
+			encoding: "GZIP",
 			body:     gzipBody(t, body),
 		},
 		{
@@ -57,19 +67,17 @@ func TestDecodeReturnsErrorForInvalidGzip(t *testing.T) {
 	require.Error(t, err)
 }
 
-// zstd is deliberately unsupported: QueryResource pins Accept-Encoding to
-// gzip, so a zstd body means the upstream ignored content negotiation and
-// must surface as an error.
-func TestDecodeReturnsErrorForZstd(t *testing.T) {
-	_, err := Decode("zstd", io.NopCloser(bytes.NewReader([]byte("body"))))
+// zstd and other unlisted encodings are deliberately unsupported: QueryResource
+// pins Accept-Encoding to gzip, so anything else means the upstream ignored
+// content negotiation and must surface as an error.
+func TestDecodeReturnsErrorForUnexpectedEncoding(t *testing.T) {
+	for _, encoding := range []string{"zstd", "lzma"} {
+		t.Run(encoding, func(t *testing.T) {
+			_, err := Decode(encoding, io.NopCloser(bytes.NewReader([]byte("body"))))
 
-	require.EqualError(t, err, `unexpected encoding type "zstd"`)
-}
-
-func TestDecodeReturnsErrorUnknownEncoding(t *testing.T) {
-	_, err := Decode("lzma", io.NopCloser(bytes.NewReader([]byte("body"))))
-
-	require.EqualError(t, err, `unexpected encoding type "lzma"`)
+			require.EqualError(t, err, `unexpected encoding type "`+encoding+`"`)
+		})
+	}
 }
 
 func gzipBody(t *testing.T, body []byte) []byte {
