@@ -2,7 +2,6 @@ package utils
 
 import (
 	"bytes"
-	"compress/flate"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -10,7 +9,6 @@ import (
 	"io"
 	"strings"
 
-	"github.com/andybalholm/brotli"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -40,19 +38,14 @@ func StartTrace(ctx context.Context, tracer trace.Tracer, name string, attribute
 
 // NewDecodingReader wraps original in a reader that yields plaintext for the given
 // Content-Encoding. QueryResource pins the upstream Accept-Encoding to gzip, so a
-// well-behaved upstream mostly answers with "gzip" or an empty/"identity" header;
-// deflate and br are decoded too since some upstreams use them regardless of what
-// was requested. Anything else (e.g. zstd) means the upstream ignored content
-// negotiation with an encoding we cannot decode, and callers must treat that as
-// an error rather than forward bytes they cannot decode.
+// well-behaved upstream answers with "gzip" or an empty/"identity" header. Anything
+// else means the upstream ignored content negotiation with an encoding we cannot
+// decode, and callers must treat that as an error rather than forward bytes they
+// cannot decode.
 func NewDecodingReader(encoding string, original io.Reader) (io.Reader, error) {
 	switch {
 	case strings.EqualFold(encoding, "gzip"):
 		return gzip.NewReader(original)
-	case strings.EqualFold(encoding, "deflate"):
-		return flate.NewReader(original), nil
-	case strings.EqualFold(encoding, "br"):
-		return brotli.NewReader(original), nil
 	case encoding == "" || strings.EqualFold(encoding, "identity"):
 		return original, nil
 	default:

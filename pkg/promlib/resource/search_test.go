@@ -109,57 +109,20 @@ func TestResourceExecuteSearchDecodesGzipResponse(t *testing.T) {
 	require.Equal(t, payload, body.String())
 }
 
-// TestResourceExecuteSearchRejectsUnexpectedEncoding covers the upstream that
-// ignores the pinned Accept-Encoding and compresses with something we cannot
-// decode. The stream must fail rather than forward bytes it did not decode:
-// the framing headers are stripped before the body is sent, so a passed-through
-// payload would reach the browser as compressed data advertised as plaintext
-// NDJSON.
+// TestResourceExecuteSearchRejectsUnexpectedEncoding covers upstreams that
+// ignore the pinned Accept-Encoding and compress with something we cannot
+// decode, deflate and br included. The stream must fail rather than forward
+// bytes it did not decode: the framing headers are stripped before the body
+// is sent, so a passed-through payload would reach the browser as compressed
+// data advertised as plaintext NDJSON.
 func TestResourceExecuteSearchRejectsUnexpectedEncoding(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Content-Encoding", "zstd")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("compressed bytes"))
-	}))
-	defer server.Close()
-
-	res := newSearchResource(t, server.URL)
-	var responses []*backend.CallResourceResponse
-	err := res.ExecuteSearch(context.Background(), &backend.CallResourceRequest{
-		Method: http.MethodGet,
-		Path:   "api/v1/search/metric_names",
-		URL:    "/api/v1/search/metric_names",
-	}, backend.CallResourceResponseSenderFunc(func(resp *backend.CallResourceResponse) error {
-		responses = append(responses, resp)
-		return nil
-	}))
-
-	require.EqualError(t, err, `unexpected encoding type "zstd"`)
-	require.Empty(t, responses, "no part of an undecodable body may be streamed to the caller")
-}
-
-// TestResourceExecuteSearchDecodesDeflateAndBrotliResponses covers the two
-// encodings ExecuteSearch and the buffered Execute path share through
-// utils.NewDecodingReader: neither is ever requested (Accept-Encoding is
-// pinned to gzip), but some upstreams answer with them anyway, and both must
-// still be decoded before streaming to the browser.
-func TestResourceExecuteSearchDecodesDeflateAndBrotliResponses(t *testing.T) {
-	payload := "{\"results\":[\"up\"]}\n{\"status\":\"success\",\"has_more\":false}\n"
-
-	for _, tc := range []struct {
-		encoding string
-		compress func(*testing.T, []byte) []byte
-	}{
-		{encoding: "deflate", compress: deflateBody},
-		{encoding: "br", compress: brotliBody},
-	} {
-		t.Run(tc.encoding, func(t *testing.T) {
+	for _, encoding := range []string{"zstd", "deflate", "br"} {
+		t.Run(encoding, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				w.Header().Set("Content-Encoding", tc.encoding)
+				w.Header().Set("Content-Encoding", encoding)
 				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write(tc.compress(t, []byte(payload)))
+				_, _ = w.Write([]byte("compressed bytes"))
 			}))
 			defer server.Close()
 
@@ -174,15 +137,8 @@ func TestResourceExecuteSearchDecodesDeflateAndBrotliResponses(t *testing.T) {
 				return nil
 			}))
 
-			require.NoError(t, err)
-			require.GreaterOrEqual(t, len(responses), 2)
-			require.Empty(t, http.Header(responses[0].Headers).Get("Content-Encoding"))
-
-			var body strings.Builder
-			for _, resp := range responses[1:] {
-				body.Write(resp.Body)
-			}
-			require.Equal(t, payload, body.String())
+			require.EqualError(t, err, `unexpected encoding type "`+encoding+`"`)
+			require.Empty(t, responses, "no part of an undecodable body may be streamed to the caller")
 		})
 	}
 }

@@ -2,12 +2,10 @@ package utils
 
 import (
 	"bytes"
-	"compress/flate"
 	"compress/gzip"
 	"io"
 	"testing"
 
-	"github.com/andybalholm/brotli"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,16 +37,6 @@ func TestDecode(t *testing.T) {
 			encoding: "GZIP",
 			body:     gzipBody(t, body),
 		},
-		{
-			name:     "deflate",
-			encoding: "deflate",
-			body:     deflateBody(t, body),
-		},
-		{
-			name:     "brotli",
-			encoding: "br",
-			body:     brotliBody(t, body),
-		},
 	}
 
 	for _, tc := range tests {
@@ -67,11 +55,11 @@ func TestDecodeReturnsErrorForInvalidGzip(t *testing.T) {
 	require.Error(t, err)
 }
 
-// zstd and other unlisted encodings are deliberately unsupported: QueryResource
-// pins Accept-Encoding to gzip, so anything else means the upstream ignored
-// content negotiation and must surface as an error.
+// zstd, deflate, br, and other unlisted encodings are deliberately unsupported:
+// QueryResource pins Accept-Encoding to gzip, so anything else means the
+// upstream ignored content negotiation and must surface as an error.
 func TestDecodeReturnsErrorForUnexpectedEncoding(t *testing.T) {
-	for _, encoding := range []string{"zstd", "lzma"} {
+	for _, encoding := range []string{"zstd", "lzma", "deflate", "br"} {
 		t.Run(encoding, func(t *testing.T) {
 			_, err := Decode(encoding, io.NopCloser(bytes.NewReader([]byte("body"))))
 
@@ -92,27 +80,3 @@ func gzipBody(t *testing.T, body []byte) []byte {
 	return buf.Bytes()
 }
 
-func deflateBody(t *testing.T, body []byte) []byte {
-	t.Helper()
-
-	var buf bytes.Buffer
-	writer, err := flate.NewWriter(&buf, flate.DefaultCompression)
-	require.NoError(t, err)
-	_, err = writer.Write(body)
-	require.NoError(t, err)
-	require.NoError(t, writer.Close())
-
-	return buf.Bytes()
-}
-
-func brotliBody(t *testing.T, body []byte) []byte {
-	t.Helper()
-
-	var buf bytes.Buffer
-	writer := brotli.NewWriter(&buf)
-	_, err := writer.Write(body)
-	require.NoError(t, err)
-	require.NoError(t, writer.Close())
-
-	return buf.Bytes()
-}
