@@ -488,6 +488,34 @@ describe('SearchApiClient', () => {
       hasMore: true,
     });
   });
+
+  it('supports batch-only consumers without retaining the complete result', async () => {
+    chunkedMock.mockReturnValue(
+      chunkedStream([
+        '{"results":[{"name":"up"}]}\n',
+        '{"results":[{"name":"go_goroutines"}]}\n',
+        '{"status":"success","has_more":false}\n',
+      ])
+    );
+    const onBatch = jest.fn();
+    const onTransportStats = jest.fn();
+    const client = new SearchApiClient(jest.fn(), datasource);
+
+    const result = await client.searchMetricNames(timeRange, '', {
+      onBatch,
+      onTransportStats,
+      retainResults: false,
+    });
+
+    expect(onBatch).toHaveBeenCalledTimes(2);
+    expect(onTransportStats).toHaveBeenCalledWith({
+      queuedBytes: 0,
+      queuedChunks: 0,
+      peakQueuedBytes: expect.any(Number),
+      peakQueuedChunks: expect.any(Number),
+    });
+    expect(result).toEqual({ results: [], warnings: [], hasMore: false });
+  });
 });
 
 function successfulStream() {

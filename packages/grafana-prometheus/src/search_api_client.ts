@@ -11,7 +11,7 @@ import {
   SeriesApiClient,
 } from './resource_clients';
 import { readSearchStream, SearchApiUnavailableError, type SearchStreamResult } from './search_api_stream';
-import { bridgeChunkedResponse } from './search_api_transport';
+import { bridgeChunkedResponse, type SearchTransportStats } from './search_api_transport';
 
 export const DEFAULT_SEARCH_API_MAX_LIMIT = 10_000;
 export const DEFAULT_SEARCH_FUZZ_THRESHOLD = 80;
@@ -42,6 +42,8 @@ export interface SearchOptions<T> {
   match?: string;
   signal?: AbortSignal;
   onBatch?: (results: T[]) => void;
+  onTransportStats?: (stats: Readonly<SearchTransportStats>) => void;
+  retainResults?: boolean;
   batchSize?: number;
   fuzzThreshold?: number;
   fuzzAlgorithm?: SearchFuzzAlgorithm;
@@ -303,16 +305,17 @@ export class SearchApiClient extends BaseResourceClient implements ResourceApiCl
     }
 
     const request: BackendSrvRequest = { url, method: 'GET', params, headers };
-    let { source, cancel } = await bridgeChunkedResponse(request, options.signal);
+    let { source, cancel, stats } = await bridgeChunkedResponse(request, options.signal);
     if (source.status === 401) {
       cancel();
       await this.pingLoginToRefreshSession();
-      ({ source, cancel } = await bridgeChunkedResponse(request, options.signal));
+      ({ source, cancel, stats } = await bridgeChunkedResponse(request, options.signal));
     }
 
     try {
-      return await readSearchStream<T>(source, options.onBatch);
+      return await readSearchStream<T>(source, options.onBatch, undefined, options.retainResults);
     } finally {
+      options.onTransportStats?.({ ...stats });
       cancel();
     }
   }
