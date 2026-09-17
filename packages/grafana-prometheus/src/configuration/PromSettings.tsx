@@ -504,6 +504,28 @@ export const PromSettings = (props: Props) => {
                 id={selectors.components.DataSource.Prometheus.configPage.disableRecordingRules}
               />
             </InlineField>
+            <InlineField
+              labelWidth={PROM_CONFIG_LABEL_WIDTH}
+              label={t('grafana-prometheus.configuration.prom-settings.label-search-api-beta', 'Search API (beta)')}
+              tooltip={
+                <Trans i18nKey="grafana-prometheus.configuration.prom-settings.tooltip-search-api">
+                  Use the streaming Search API for metric and label discovery. Requires Prometheus with
+                  --enable-feature=search-api or Mimir with -querier.experimental-search-api-enabled.
+                </Trans>
+              }
+              interactive={true}
+              disabled={true}
+              className={styles.switchField}
+            >
+              <Switch
+                value={optionsWithDefaults.jsonData.enableSearchApi ?? false}
+                onChange={onUpdateDatasourceJsonDataOptionChecked(props, 'enableSearchApi')}
+                aria-label={t(
+                  'grafana-prometheus.configuration.prom-settings.aria-label-search-api',
+                  'Enable Search API (beta)'
+                )}
+              />
+            </InlineField>
           </Stack>
         </Box>
       </ConfigSubSection>

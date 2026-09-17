@@ -57,6 +57,12 @@ export class SearchApiClient extends BaseResourceClient implements ResourceApiCl
   public labelKeys: string[] = [];
   public cachedLabelValues: Record<string, string[]> = {};
 
+  // True means capability has not been disproved for this datasource instance;
+  // the first request still performs the actual probe.
+  public isAvailable(): boolean {
+    return !this.searchUnavailable;
+  }
+
   public start = async (timeRange: TimeRange): Promise<void> => {
     return this.withFallback(
       async () => {
@@ -112,6 +118,13 @@ export class SearchApiClient extends BaseResourceClient implements ResourceApiCl
     limit?: number
   ): Promise<{ metrics: string[]; histogramMetrics: string[] }> {
     const effectiveLimit = this.getEffectiveSearchLimit(limit);
+    const cached = this._cache.getLabelValues(timeRange, undefined, effectiveLimit);
+    if (cached) {
+      this.metrics = cached.slice();
+      this.histogramMetrics = processHistogramMetrics(this.metrics);
+      return { metrics: this.metrics, histogramMetrics: this.histogramMetrics };
+    }
+
     const response = await this.searchMetricNames(timeRange, '', { limit: effectiveLimit });
     this.metrics = response.results.map((result) => result.name);
     this.histogramMetrics = processHistogramMetrics(this.metrics);

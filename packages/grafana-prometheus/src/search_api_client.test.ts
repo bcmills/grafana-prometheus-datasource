@@ -70,6 +70,19 @@ describe('SearchApiClient', () => {
     });
   });
 
+  it('caches adapted metric names', async () => {
+    chunkedMock.mockReturnValue(searchResultsStream([{ name: 'up' }]));
+    const client = new SearchApiClient(jest.fn(), datasource);
+
+    await client.queryMetrics(timeRange, 20);
+    await expect(client.queryMetrics(timeRange, 20)).resolves.toEqual({
+      metrics: ['up'],
+      histogramMetrics: [],
+    });
+
+    expect(chunkedMock).toHaveBeenCalledTimes(1);
+  });
+
   it('adapts and caches label names', async () => {
     chunkedMock.mockReturnValue(searchResultsStream([{ name: 'instance' }, { name: 'job' }]));
     const client = new SearchApiClient(jest.fn(), datasource);
@@ -118,10 +131,12 @@ describe('SearchApiClient', () => {
     requestMock.mockResolvedValue(['standard-b', 'standard-a']);
     const client = new SearchApiClient(requestMock, datasource);
 
+    expect(client.isAvailable()).toBe(true);
     await expect(client.queryLabelKeys(timeRange)).resolves.toEqual(['standard-a', 'standard-b']);
 
     expect(requestMock).toHaveBeenCalledWith('/api/v1/labels', expect.anything(), undefined);
     expect(console.warn).toHaveBeenCalledTimes(1);
+    expect(client.isAvailable()).toBe(false);
   });
 
   it('falls back for a missing Search API route', async () => {
@@ -324,7 +339,9 @@ describe('SearchApiClient', () => {
     );
     const client = new SearchApiClient(jest.fn(), datasource);
 
+    expect(client.isAvailable()).toBe(true);
     await expect(client.searchMetricNames(timeRange, 'up')).rejects.toBeInstanceOf(SearchApiUnavailableError);
+    expect(client.isAvailable()).toBe(false);
   });
 
   it('retries once after a 401 through the login ping', async () => {
