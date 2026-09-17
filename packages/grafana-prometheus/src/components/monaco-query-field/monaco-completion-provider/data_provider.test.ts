@@ -126,10 +126,16 @@ describe('DataProvider', () => {
       languageProvider.getSearchApiClient.mockReturnValue({ searchMetricNames });
       const dataProvider = createDataProvider(languageProvider);
 
-      await expect(dataProvider.queryMetricNames(timeRange, 'http req')).resolves.toEqual(['http_requests_total']);
+      await expect(dataProvider.queryMetricNames(timeRange, 'http   req')).resolves.toEqual(['http_requests_total']);
       const firstSignal = searchMetricNames.mock.calls[0][2].signal as AbortSignal;
       await dataProvider.queryMetricNames(timeRange, 'http requ');
 
+      expect(searchMetricNames).toHaveBeenNthCalledWith(
+        1,
+        timeRange,
+        'http   req',
+        expect.objectContaining({ limit: DEFAULT_COMPLETION_LIMIT, signal: expect.any(AbortSignal) })
+      );
       expect(searchMetricNames).toHaveBeenLastCalledWith(
         timeRange,
         'http requ',
@@ -168,13 +174,19 @@ describe('DataProvider', () => {
       const dataProvider = createDataProvider(languageProvider);
 
       await expect(
-        dataProvider.queryLabelValues(timeRange, 'environment', '{job="api"}', DEFAULT_COMPLETION_LIMIT, 'prod')
+        dataProvider.queryLabelValues(
+          timeRange,
+          'environment',
+          '{job="api"}',
+          DEFAULT_COMPLETION_LIMIT,
+          'datasource uid'
+        )
       ).resolves.toEqual(['production']);
 
       expect(searchLabelValues).toHaveBeenCalledWith(
         timeRange,
         'environment',
-        'prod',
+        'datasource uid',
         expect.objectContaining({
           match: '{job="api"}',
           limit: DEFAULT_COMPLETION_LIMIT,

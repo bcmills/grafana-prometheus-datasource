@@ -302,7 +302,7 @@ describe('MetricsModalContext', () => {
 
       let pendingSearch!: Promise<void>;
       act(() => {
-        pendingSearch = result.current.debouncedBackendSearch(defaultTimeRange, 'metric');
+        pendingSearch = result.current.debouncedBackendSearch(defaultTimeRange, 'http   req');
       });
 
       await waitFor(() => {
@@ -320,9 +320,14 @@ describe('MetricsModalContext', () => {
         { value: 'first_metric', type: 'counter', description: 'First metric' },
         { value: 'second_metric', type: 'gauge', description: 'Second metric' },
       ]);
+      expect(searchMetricNames).toHaveBeenCalledWith(
+        defaultTimeRange,
+        'http   req',
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
       expect(searchLanguageProvider.queryLabelValues).not.toHaveBeenCalled();
       expect(reportInteraction).toHaveBeenCalledWith('grafana_prometheus_metrics_explorer_search_performed', {
-        searchQuery: 'metric',
+        searchQuery: 'http   req',
         resultsCount: 2,
         discoveryApi: 'search',
       });

@@ -126,12 +126,12 @@ describe('MetricCombobox', () => {
 
     const combobox = screen.getByPlaceholderText('Select metric');
     await userEvent.click(combobox);
-    await userEvent.type(combobox, 'http req');
+    await userEvent.type(combobox, 'http   req');
 
     expect(await screen.findByRole('option', { name: 'http_requests_total' })).toBeInTheDocument();
     expect(searchMetricNames).toHaveBeenCalledWith(
       defaultProps.timeRange,
-      'http req',
+      'http   req',
       expect.objectContaining({
         limit: DEFAULT_COMPLETION_LIMIT,
         signal: expect.any(AbortSignal),
