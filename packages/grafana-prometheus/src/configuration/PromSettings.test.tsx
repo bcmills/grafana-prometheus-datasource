@@ -76,7 +76,7 @@ describe('PromSettings', () => {
       const options = createDefaultConfigOptions();
 
       render(<PromSettings onOptionsChange={onOptionsChange} options={options} />);
-      const searchApiSwitch = screen.getByRole('switch', { name: 'Enable Search API' });
+      const searchApiSwitch = screen.getByRole('switch', { name: 'Enable Search API (beta)' });
 
       expect(screen.getByText('Search API (beta)')).toBeInTheDocument();
       expect(searchApiSwitch).toBeDisabled();
@@ -88,13 +88,13 @@ describe('PromSettings', () => {
       const defaultOptions = createDefaultConfigOptions();
       const { rerender } = render(<PromSettings onOptionsChange={() => {}} options={defaultOptions} />);
 
-      expect(screen.getByRole('switch', { name: 'Enable Search API' })).not.toBeChecked();
+      expect(screen.getByRole('switch', { name: 'Enable Search API (beta)' })).not.toBeChecked();
 
       const enabledOptions = createDefaultConfigOptions();
       enabledOptions.jsonData.enableSearchApi = true;
       rerender(<PromSettings onOptionsChange={() => {}} options={enabledOptions} />);
 
-      expect(screen.getByRole('switch', { name: 'Enable Search API' })).toBeChecked();
+      expect(screen.getByRole('switch', { name: 'Enable Search API (beta)' })).toBeChecked();
     });
 
     it('should hide query samples processed threshold fields by default', () => {
