@@ -63,8 +63,10 @@ gzip-proxy datasource provisioning.
 
 The Search API environment additionally provisions `prometheus-search-api` as
 the default datasource with `enableSearchApi` enabled. Use
-`prometheus-direct` in the same environment to compare classic discovery
-against the experimental metric and label search endpoints.
+`prometheus-direct` in the same environment to compare standard Prometheus discovery
+against the experimental metric and label search endpoints. See the
+[Search API lifecycle](./docs/prometheus-search-api-lifecycle.md) for runtime
+requirements and fallback behavior.
 
 Stop the active environment before selecting another one:
 
