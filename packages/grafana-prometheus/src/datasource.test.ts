@@ -1368,7 +1368,8 @@ describe('When querying prometheus via check headers X-Dashboard-Id X-Panel-Id a
     );
 
     expect(disabledDatasource.hasSearchApiSupport()).toBe(false);
-    expect(searchDatasource.hasSearchApiSupport()).toBe(true);
+    // when we wire up the UI the following should be true
+    expect(searchDatasource.hasSearchApiSupport()).toBe(false);
   });
 });
 
