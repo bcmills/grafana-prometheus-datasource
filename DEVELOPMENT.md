@@ -42,7 +42,7 @@ the provisioned `prometheus-direct` and `prometheus-gzip` datasource UIDs:
 | `npm run server:random-data`      | Random counters, gauges, and histograms                               |
 | `npm run server:high-cardinality` | `fakedata_highcard_http_requests_total` with many label combinations  |
 | `npm run server:utf8`             | UTF-8 metric and label names, including `a.utf8.metric 🤘`            |
-| `npm run server:search-api`       | Prometheus 3.13.1 with the experimental Search API enabled            |
+| `npm run server:search-api`       | Prometheus 3.13.3 with the experimental Search API enabled            |
 | `npm run server:full`             | All generators, node exporter, fake-data-gen, rules, and Alertmanager |
 
 The scripts are shorthand for layering one override onto the base file. The base
