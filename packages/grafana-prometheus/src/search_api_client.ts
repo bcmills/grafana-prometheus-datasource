@@ -14,6 +14,10 @@ import { readSearchStream, SearchApiUnavailableError, type SearchStreamResult } 
 import { bridgeChunkedResponse } from './search_api_transport';
 
 export const DEFAULT_SEARCH_API_MAX_LIMIT = 10_000;
+export const DEFAULT_SEARCH_FUZZ_THRESHOLD = 80;
+export const DEFAULT_SEARCH_FUZZ_ALGORITHM: SearchFuzzAlgorithm = 'jarowinkler';
+
+export type SearchFuzzAlgorithm = 'subsequence' | 'jarowinkler';
 
 export interface SearchMetricResult {
   name: string;
@@ -39,6 +43,9 @@ export interface SearchOptions<T> {
   signal?: AbortSignal;
   onBatch?: (results: T[]) => void;
   batchSize?: number;
+  fuzzThreshold?: number;
+  fuzzAlgorithm?: SearchFuzzAlgorithm;
+  caseSensitive?: boolean;
 }
 
 export interface SearchMetricOptions extends SearchOptions<SearchMetricResult> {
@@ -268,6 +275,9 @@ export class SearchApiClient extends BaseResourceClient implements ResourceApiCl
     if (normalizedTerm) {
       params['search[]'] = normalizedTerm;
       params.sort_by = 'score';
+      params.fuzz_threshold = String(options.fuzzThreshold ?? DEFAULT_SEARCH_FUZZ_THRESHOLD);
+      params.fuzz_alg = options.fuzzAlgorithm ?? DEFAULT_SEARCH_FUZZ_ALGORITHM;
+      params.case_sensitive = String(options.caseSensitive ?? false);
     }
     if (options.match) {
       params['match[]'] = options.match;
