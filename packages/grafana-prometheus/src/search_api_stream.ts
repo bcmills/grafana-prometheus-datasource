@@ -99,9 +99,9 @@ export async function readSearchStream<T>(
   let sawTrailer = false;
   let buffer = '';
 
-  const processLine = (line: string, tolerateIncomplete: boolean) => {
+  const processLine = (line: string, tolerateIncomplete: boolean): boolean => {
     if (!line.trim()) {
-      return;
+      return false;
     }
 
     let parsed: SearchBatch<T> | SearchTrailer | SearchErrorLine;
@@ -111,7 +111,7 @@ export async function readSearchStream<T>(
       if (tolerateIncomplete) {
         // Abrupt EOF is valid for this API. Ignore only the unfinished final
         // line; malformed newline-terminated records still fail loudly.
-        return;
+        return false;
       }
       throw error;
     }
@@ -125,7 +125,7 @@ export async function readSearchStream<T>(
       if (parsed.warnings) {
         warnings.push(...parsed.warnings);
       }
-      return;
+      return false;
     }
 
     if (Array.isArray(parsed.results)) {
@@ -138,7 +138,10 @@ export async function readSearchStream<T>(
       // Incremental consumers render this batch immediately; conventional
       // callers still receive the accumulated result when the stream ends.
       onBatch?.(parsed.results);
+      return Boolean(onBatch && parsed.results.length > 0);
     }
+
+    return false;
   };
 
   // HTTP chunk boundaries are unrelated to NDJSON line boundaries, so retain
@@ -155,7 +158,12 @@ export async function readSearchStream<T>(
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
     for (const line of lines) {
-      processLine(line, false);
+      const publishedBatch = processLine(line, false);
+      if (publishedBatch) {
+        // Several NDJSON batches often arrive in one HTTP chunk. Yield so React
+        // can paint the first page before later setState calls are flushed.
+        await yieldForPaint();
+      }
     }
     // Fail fast on an unterminated line rather than buffering without bound.
     if (buffer.length > maxLineLength) {
@@ -175,4 +183,10 @@ export async function readSearchStream<T>(
   }
 
   return { results, warnings, hasMore };
+}
+
+function yieldForPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
 }

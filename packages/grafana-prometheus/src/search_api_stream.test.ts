@@ -44,6 +44,23 @@ describe('readSearchStream', () => {
     expect(onBatch).toHaveBeenNthCalledWith(2, [{ name: 'go_goroutines' }]);
   });
 
+  it('yields between batches that arrive in the same HTTP chunk', async () => {
+    const order: string[] = [];
+    const onBatch = jest.fn(() => {
+      order.push('batch');
+      queueMicrotask(() => order.push('microtask'));
+      setTimeout(() => order.push('timeout'), 0);
+    });
+    const source = chunkSource([
+      '{"results":[{"name":"up"}]}\n{"results":[{"name":"go_goroutines"}]}\n{"status":"success","has_more":false}\n',
+    ]);
+
+    await readSearchStream<TestResult>(source, onBatch);
+
+    expect(onBatch).toHaveBeenCalledTimes(2);
+    expect(order).toEqual(['batch', 'microtask', 'timeout', 'batch', 'microtask', 'timeout']);
+  });
+
   it('surfaces mid-stream errors with partial results', async () => {
     const source = chunkSource([
       '{"results":[{"name":"up"}]}\n',
