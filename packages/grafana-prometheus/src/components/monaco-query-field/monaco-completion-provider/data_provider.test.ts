@@ -1,6 +1,6 @@
 import { type HistoryItem, type TimeRange } from '@grafana/data';
 
-import { DEFAULT_COMPLETION_LIMIT, METRIC_LABEL } from '../../../constants';
+import { DEFAULT_COMPLETION_LIMIT, METRIC_LABEL, SEARCH_STREAM_BATCH_SIZE } from '../../../constants';
 import { SearchApiUnavailableError } from '../../../search_api_stream';
 import { type PromQuery } from '../../../types';
 
@@ -134,7 +134,11 @@ describe('DataProvider', () => {
         1,
         timeRange,
         'http   req',
-        expect.objectContaining({ limit: DEFAULT_COMPLETION_LIMIT, signal: expect.any(AbortSignal) })
+        expect.objectContaining({
+          limit: DEFAULT_COMPLETION_LIMIT,
+          batchSize: SEARCH_STREAM_BATCH_SIZE,
+          signal: expect.any(AbortSignal),
+        })
       );
       expect(searchMetricNames).toHaveBeenLastCalledWith(
         timeRange,
@@ -173,6 +177,25 @@ describe('DataProvider', () => {
         expect.objectContaining({
           onBatch: expect.any(Function),
           retainResults: false,
+          batchSize: SEARCH_STREAM_BATCH_SIZE,
+        })
+      );
+    });
+
+    it('requests the full completion cap as one batch when there is no search term', async () => {
+      const languageProvider = createLanguageProviderMock();
+      const searchMetricNames = jest.fn().mockResolvedValue({ results: [{ name: 'up' }], warnings: [], hasMore: false });
+      languageProvider.getSearchApiClient.mockReturnValue({ searchMetricNames });
+      const dataProvider = createDataProvider(languageProvider);
+
+      await dataProvider.queryMetricNames(timeRange, undefined);
+
+      expect(searchMetricNames).toHaveBeenCalledWith(
+        timeRange,
+        '',
+        expect.objectContaining({
+          limit: DEFAULT_COMPLETION_LIMIT,
+          batchSize: DEFAULT_COMPLETION_LIMIT,
         })
       );
     });

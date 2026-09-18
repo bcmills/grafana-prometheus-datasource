@@ -1,6 +1,6 @@
 import { type HistoryItem, type TimeRange } from '@grafana/data';
 
-import { DEFAULT_COMPLETION_LIMIT, METRIC_LABEL } from '../../../constants';
+import { DEFAULT_COMPLETION_LIMIT, METRIC_LABEL, SEARCH_STREAM_BATCH_SIZE } from '../../../constants';
 import { type PrometheusLanguageProviderInterface } from '../../../language_provider';
 import { removeQuotesIfExist } from '../../../language_utils';
 import { SearchApiUnavailableError } from '../../../search_api_stream';
@@ -64,6 +64,7 @@ export class DataProvider {
         try {
           const response = await searchClient.searchMetricNames(timeRange, searchTerm ?? '', {
             limit: DEFAULT_COMPLETION_LIMIT,
+            batchSize: monacoSearchBatchSize(searchTerm),
             onBatch: publishBatch,
             retainResults: false,
             signal: this.metricSearchAbortController.signal,
@@ -219,4 +220,11 @@ export class DataProvider {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
+}
+
+// Unfiltered Monaco lists retrigger the native suggest widget per batch.
+// Until a Grafana-owned overlay can append without remounting, request the
+// full completion cap as one batch when there is no prefix to narrow on.
+function monacoSearchBatchSize(searchTerm?: string): number {
+  return searchTerm?.trim() ? SEARCH_STREAM_BATCH_SIZE : DEFAULT_COMPLETION_LIMIT;
 }
