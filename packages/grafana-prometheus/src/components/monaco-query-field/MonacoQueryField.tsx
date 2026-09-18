@@ -189,11 +189,15 @@ const MonacoQueryField = (props: Props) => {
           });
 
           // Create completion provider with state for Ctrl+Space detection
-          const { provider: completionProvider, state: completionState } = getCompletionProvider(
-            monaco,
-            dataProvider,
-            timeRange
-          );
+          const {
+            provider: completionProvider,
+            state: completionState,
+            dispose: disposeCompletionProvider,
+          } = getCompletionProvider(monaco, dataProvider, timeRange, () => {
+            if (editor.hasTextFocus()) {
+              editor.trigger('search-api-stream', 'editor.action.triggerSuggest', {});
+            }
+          });
 
           // completion-providers in monaco are not registered directly to editor-instances,
           // they are registered to languages. this makes it hard for us to have
@@ -242,6 +246,7 @@ const MonacoQueryField = (props: Props) => {
           // Combine cleanup functions
           autocompleteDisposeFun.current = () => {
             document.removeEventListener('keydown', handleKeyDown, true);
+            disposeCompletionProvider();
             dataProvider.dispose();
             dispose();
           };

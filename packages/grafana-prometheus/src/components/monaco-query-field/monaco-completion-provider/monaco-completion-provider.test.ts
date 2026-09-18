@@ -126,6 +126,7 @@ describe('monaco-completion-provider', () => {
       expect(result.state).toHaveProperty('isManualTriggerRequested', false);
       expect(result.provider).toHaveProperty('triggerCharacters');
       expect(result.provider).toHaveProperty('provideCompletionItems');
+      expect(result).toHaveProperty('dispose');
     });
 
     it('should have correct trigger characters', () => {
@@ -217,9 +218,59 @@ describe('monaco-completion-provider', () => {
         insertText: 'test_metric',
         documentation: 'Test documentation',
         kind: 5, // Constructor kind for METRIC_NAME
-        sortText: '0',
+        sortText: '000000',
         command: undefined,
       });
+    });
+
+    it('returns the first batch and reuses later batches when suggestions are retriggered', async () => {
+      const firstCompletion = {
+        label: 'first_metric',
+        insertText: 'first_metric',
+        type: 'METRIC_NAME' as const,
+      };
+      const secondCompletion = {
+        label: 'second_metric',
+        insertText: 'second_metric',
+        type: 'METRIC_NAME' as const,
+      };
+      let publishProgress: ((items: (typeof firstCompletion)[]) => void) | undefined;
+      let finishSearch: ((items: (typeof firstCompletion)[]) => void) | undefined;
+      mockGetCompletions.mockImplementation((_situation, _provider, _range, _word, _trigger, onProgress) => {
+        publishProgress = onProgress;
+        return new Promise((resolve) => {
+          finishSearch = resolve;
+        });
+      });
+      const triggerSuggestions = jest.fn();
+      const model = createMockModel('metric', { word: 'metric', startColumn: 1, endColumn: 7 });
+      const position = createMockPosition(7);
+      const { provider } = getCompletionProvider(monaco, dataProvider, timeRange, triggerSuggestions);
+
+      const firstResultPromise = (provider.provideCompletionItems as Function)(model, position);
+      publishProgress?.([firstCompletion]);
+      const firstResult = await firstResultPromise;
+
+      expect(firstResult.suggestions.map((item: { label: string }) => item.label)).toEqual(['first_metric']);
+      expect(firstResult.incomplete).toBe(true);
+
+      publishProgress?.([firstCompletion, secondCompletion]);
+      expect(triggerSuggestions).toHaveBeenCalledTimes(1);
+
+      const refreshedResult = await (provider.provideCompletionItems as Function)(model, position);
+      expect(refreshedResult.suggestions.map((item: { label: string }) => item.label)).toEqual([
+        'first_metric',
+        'second_metric',
+      ]);
+      expect(refreshedResult.incomplete).toBe(true);
+      expect(mockGetCompletions).toHaveBeenCalledTimes(1);
+
+      finishSearch?.([firstCompletion, secondCompletion]);
+      await Promise.resolve();
+      expect(triggerSuggestions).toHaveBeenCalledTimes(2);
+
+      const completedResult = await (provider.provideCompletionItems as Function)(model, position);
+      expect(completedResult.incomplete).toBe(false);
     });
 
     it('should add trigger command for items with triggerOnInsert', async () => {

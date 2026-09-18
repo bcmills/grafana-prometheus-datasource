@@ -145,6 +145,38 @@ describe('DataProvider', () => {
       expect(languageProvider.queryLabelValues).not.toHaveBeenCalled();
     });
 
+    it('publishes accumulated metric batches before completion', async () => {
+      const languageProvider = createLanguageProviderMock();
+      let finishSearch: ((response: { results: never[]; warnings: never[]; hasMore: boolean }) => void) | undefined;
+      const searchMetricNames = jest.fn().mockImplementation((_timeRange, _term, options) => {
+        options.onBatch([{ name: 'first_metric' }]);
+        return new Promise((resolve) => {
+          finishSearch = resolve;
+        });
+      });
+      languageProvider.getSearchApiClient.mockReturnValue({ searchMetricNames });
+      const dataProvider = createDataProvider(languageProvider);
+      const onProgress = jest.fn();
+
+      const pendingResult = dataProvider.queryMetricNames(timeRange, 'metric', onProgress);
+      await Promise.resolve();
+
+      expect(onProgress).toHaveBeenCalledWith(['first_metric']);
+
+      const options = searchMetricNames.mock.calls[0][2];
+      options.onBatch([{ name: 'second_metric' }]);
+      finishSearch?.({ results: [], warnings: [], hasMore: false });
+
+      await expect(pendingResult).resolves.toEqual(['first_metric', 'second_metric']);
+      expect(onProgress).toHaveBeenLastCalledWith(['first_metric', 'second_metric']);
+      expect(options).toEqual(
+        expect.objectContaining({
+          onBatch: expect.any(Function),
+          retainResults: false,
+        })
+      );
+    });
+
     it('falls back to standard discovery when fuzzy search is unavailable', async () => {
       const languageProvider = createLanguageProviderMock();
       languageProvider.queryLabelValues.mockResolvedValue(['standard_metric']);

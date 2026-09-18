@@ -2,7 +2,7 @@
 import { type TimeRange } from '@grafana/data';
 import type { Monaco, monacoTypes } from '@grafana/ui';
 
-import { type CompletionType, getCompletions } from './completions';
+import { type Completion, type CompletionType, getCompletions } from './completions';
 import { type DataProvider } from './data_provider';
 import { getSituation } from './situation';
 import { NeverCaseError } from './util';
@@ -91,10 +91,46 @@ function getTriggerType(
 export function getCompletionProvider(
   monaco: Monaco,
   dataProvider: DataProvider,
-  timeRange: TimeRange
-): { provider: monacoTypes.languages.CompletionItemProvider; state: MonacoQueryFieldLocalState } {
+  timeRange: TimeRange,
+  triggerSuggestions?: () => void
+): {
+  provider: monacoTypes.languages.CompletionItemProvider;
+  state: MonacoQueryFieldLocalState;
+  dispose: () => void;
+} {
   const state: MonacoQueryFieldLocalState = {
     isManualTriggerRequested: false,
+  };
+  let activeRequestId = 0;
+  let activeRequestKey: string | undefined;
+  let latestItems: Completion[] = [];
+  let hasProgress = false;
+  let isComplete = false;
+  let disposed = false;
+
+  const toCompletionList = (
+    items: Completion[],
+    range: monacoTypes.IRange,
+    incomplete: boolean
+  ): monacoTypes.languages.CompletionList => {
+    const suggestions: monacoTypes.languages.CompletionItem[] = items.map((item, index) => ({
+      kind: getMonacoCompletionItemKind(item.type, monaco),
+      label: item.label,
+      insertText: item.insertText,
+      insertTextRules: item.insertTextRules,
+      detail: item.detail,
+      documentation: item.documentation,
+      sortText: index.toString().padStart(6, '0'),
+      range,
+      command: item.triggerOnInsert
+        ? {
+            id: 'editor.action.triggerSuggest',
+            title: '',
+          }
+        : undefined,
+    }));
+
+    return { suggestions, incomplete };
   };
 
   const provideCompletionItems = (
@@ -123,29 +159,62 @@ export function getCompletionProvider(
     }
 
     const triggerType: TriggerType = getTriggerType(word, model, position, state);
+    const requestKey = [
+      model.id,
+      model.getValue(),
+      position.lineNumber,
+      position.column,
+      JSON.stringify(situation),
+      triggerType,
+    ].join(':');
 
-    return getCompletions(situation, dataProvider, timeRange, word?.word, triggerType).then((items) => {
-      // Monaco by-default alphabetically orders the items.
-      // We use a number-as-string sortkey to maintain our custom order
-      const maxIndexDigits = items.length > 0 ? items.length.toString().length : 1;
-      const suggestions: monacoTypes.languages.CompletionItem[] = items.map((item, index) => ({
-        kind: getMonacoCompletionItemKind(item.type, monaco),
-        label: item.label,
-        insertText: item.insertText,
-        insertTextRules: item.insertTextRules,
-        detail: item.detail,
-        documentation: item.documentation,
-        sortText: index.toString().padStart(maxIndexDigits, '0'), // to force the order we have
-        range,
-        command: item.triggerOnInsert
-          ? {
-              id: 'editor.action.triggerSuggest',
-              title: '',
-            }
-          : undefined,
-      }));
+    if (triggerSuggestions && requestKey === activeRequestKey && (hasProgress || isComplete)) {
+      return Promise.resolve(toCompletionList(latestItems, range, !isComplete));
+    }
 
-      return { suggestions };
+    const requestId = ++activeRequestId;
+    activeRequestKey = requestKey;
+    latestItems = [];
+    hasProgress = false;
+    isComplete = false;
+
+    let resolveFirstProgress: (items: Completion[]) => void;
+    const firstProgress = new Promise<Completion[]>((resolve) => {
+      resolveFirstProgress = resolve;
+    });
+
+    const publishProgress = (items: Completion[]) => {
+      if (disposed || requestId !== activeRequestId) {
+        return;
+      }
+      latestItems = items;
+      if (!hasProgress) {
+        hasProgress = true;
+        resolveFirstProgress(items);
+      } else {
+        triggerSuggestions?.();
+      }
+    };
+    const completionRequest = triggerSuggestions
+      ? getCompletions(situation, dataProvider, timeRange, word?.word, triggerType, publishProgress)
+      : getCompletions(situation, dataProvider, timeRange, word?.word, triggerType);
+
+    const finalItems = completionRequest.then((items) => {
+      if (!disposed && requestId === activeRequestId) {
+        latestItems = items;
+        isComplete = true;
+        if (hasProgress) {
+          triggerSuggestions?.();
+        }
+      }
+      return items;
+    });
+
+    return Promise.race([firstProgress, finalItems]).then((items) => {
+      if (disposed || requestId !== activeRequestId) {
+        return { suggestions: [], incomplete: false };
+      }
+      return toCompletionList(items, range, !isComplete);
     });
   };
 
@@ -174,5 +243,11 @@ export function getCompletionProvider(
       provideCompletionItems,
     },
     state,
+    dispose: () => {
+      disposed = true;
+      activeRequestId++;
+      activeRequestKey = undefined;
+      latestItems = [];
+    },
   };
 }

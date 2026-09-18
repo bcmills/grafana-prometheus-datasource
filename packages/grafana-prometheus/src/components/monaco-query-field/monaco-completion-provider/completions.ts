@@ -30,7 +30,7 @@ export type CompletionType =
 // https://github.com/grafana/grafana/pull/96450
 const InsertAsSnippet = 4;
 
-type Completion = {
+export type Completion = {
   type: CompletionType;
   label: string;
   insertText: string;
@@ -52,24 +52,29 @@ const MAX_HISTORY_COMPLETIONS = 10;
 async function getAllMetricNamesCompletions(
   searchTerm: string | undefined,
   dataProvider: DataProvider,
-  timeRange: TimeRange
+  timeRange: TimeRange,
+  onProgress?: (completions: Completion[]) => void
 ): Promise<Completion[]> {
-  let metricNames = await dataProvider.queryMetricNames(timeRange, searchTerm);
+  const toCompletions = (metricNames: string[]): Completion[] =>
+    dataProvider.metricNamesToMetrics(metricNames).map((metric) => ({
+      type: 'METRIC_NAME',
+      label: metric.name,
+      detail: `${metric.name} : ${metric.type}`,
+      documentation: metric.help,
+      ...(metric.isUtf8
+        ? {
+            insertText: `{"${metric.name}"${snippetMarker}}`,
+            insertTextRules: InsertAsSnippet,
+          }
+        : {
+            insertText: metric.name,
+          }),
+    }));
+  const metricNames = onProgress
+    ? await dataProvider.queryMetricNames(timeRange, searchTerm, (names) => onProgress(toCompletions(names)))
+    : await dataProvider.queryMetricNames(timeRange, searchTerm);
 
-  return dataProvider.metricNamesToMetrics(metricNames).map((metric) => ({
-    type: 'METRIC_NAME',
-    label: metric.name,
-    detail: `${metric.name} : ${metric.type}`,
-    documentation: metric.help,
-    ...(metric.isUtf8
-      ? {
-          insertText: `{"${metric.name}"${snippetMarker}}`,
-          insertTextRules: InsertAsSnippet,
-        }
-      : {
-          insertText: metric.name,
-        }),
-  }));
+  return toCompletions(metricNames);
 }
 
 const getFunctionCompletions: () => Completion[] = () => {
@@ -89,10 +94,16 @@ async function getFunctionsOnlyCompletions(): Promise<Completion[]> {
 async function getAllFunctionsAndMetricNamesCompletions(
   searchTerm: string | undefined,
   dataProvider: DataProvider,
-  timeRange: TimeRange
+  timeRange: TimeRange,
+  onProgress?: (completions: Completion[]) => void
 ): Promise<Completion[]> {
-  const metricNames = await getAllMetricNamesCompletions(searchTerm, dataProvider, timeRange);
-  return [...getFunctionCompletions(), ...metricNames];
+  const functions = getFunctionCompletions();
+  const metricNames = onProgress
+    ? await getAllMetricNamesCompletions(searchTerm, dataProvider, timeRange, (completions) =>
+        onProgress([...functions, ...completions])
+      )
+    : await getAllMetricNamesCompletions(searchTerm, dataProvider, timeRange);
+  return [...functions, ...metricNames];
 }
 
 const DURATION_COMPLETIONS: Completion[] = [
@@ -147,15 +158,18 @@ async function getLabelNames(
   otherLabels: Label[],
   dataProvider: DataProvider,
   timeRange: TimeRange,
-  searchTerm?: string
+  searchTerm?: string,
+  onProgress?: (labelNames: string[]) => void
 ): Promise<string[]> {
   const selector = makeSelector(metric, otherLabels);
-  const labelNames = await dataProvider.queryLabelKeys(timeRange, selector, DEFAULT_COMPLETION_LIMIT, searchTerm);
-  // Exclude __name__ from output
-  otherLabels.push({ name: '__name__', value: '', op: '!=' });
-  const usedLabelNames = new Set(otherLabels.map((l) => l.name));
-  // names used in the query
-  return labelNames.filter((l) => !usedLabelNames.has(l));
+  const usedLabelNames = new Set([...otherLabels.map((label) => label.name), '__name__']);
+  const filterUnusedNames = (labelNames: string[]) => labelNames.filter((name) => !usedLabelNames.has(name));
+  const labelNames = onProgress
+    ? await dataProvider.queryLabelKeys(timeRange, selector, DEFAULT_COMPLETION_LIMIT, searchTerm, (names) =>
+        onProgress(filterUnusedNames(names))
+      )
+    : await dataProvider.queryLabelKeys(timeRange, selector, DEFAULT_COMPLETION_LIMIT, searchTerm);
+  return filterUnusedNames(labelNames);
 }
 
 async function getLabelNamesForCompletions(
@@ -165,25 +179,32 @@ async function getLabelNamesForCompletions(
   otherLabels: Label[],
   dataProvider: DataProvider,
   timeRange: TimeRange,
-  searchTerm?: string
+  searchTerm?: string,
+  onProgress?: (completions: Completion[]) => void
 ): Promise<Completion[]> {
-  const labelNames = await getLabelNames(metric, otherLabels, dataProvider, timeRange, searchTerm);
-  return labelNames.map((text) => {
-    const isUtf8 = !isValidLegacyName(text);
-    return {
-      type: 'LABEL_NAME',
-      label: text,
-      ...(isUtf8
-        ? {
-            insertText: `"${text}"${suffix}`,
-            insertTextRules: InsertAsSnippet,
-          }
-        : {
-            insertText: `${text}${suffix}`,
-          }),
-      triggerOnInsert,
-    };
-  });
+  const toCompletions = (labelNames: string[]): Completion[] =>
+    labelNames.map((text) => {
+      const isUtf8 = !isValidLegacyName(text);
+      return {
+        type: 'LABEL_NAME',
+        label: text,
+        ...(isUtf8
+          ? {
+              insertText: `"${text}"${suffix}`,
+              insertTextRules: InsertAsSnippet,
+            }
+          : {
+              insertText: `${text}${suffix}`,
+            }),
+        triggerOnInsert,
+      };
+    });
+  const labelNames = onProgress
+    ? await getLabelNames(metric, otherLabels, dataProvider, timeRange, searchTerm, (names) =>
+        onProgress(toCompletions(names))
+      )
+    : await getLabelNames(metric, otherLabels, dataProvider, timeRange, searchTerm);
+  return toCompletions(labelNames);
 }
 
 async function getLabelNamesForSelectorCompletions(
@@ -191,9 +212,10 @@ async function getLabelNamesForSelectorCompletions(
   otherLabels: Label[],
   dataProvider: DataProvider,
   timeRange: TimeRange,
-  searchTerm?: string
+  searchTerm?: string,
+  onProgress?: (completions: Completion[]) => void
 ): Promise<Completion[]> {
-  return getLabelNamesForCompletions(metric, '=', true, otherLabels, dataProvider, timeRange, searchTerm);
+  return getLabelNamesForCompletions(metric, '=', true, otherLabels, dataProvider, timeRange, searchTerm, onProgress);
 }
 
 async function getLabelNamesForByCompletions(
@@ -201,9 +223,10 @@ async function getLabelNamesForByCompletions(
   otherLabels: Label[],
   dataProvider: DataProvider,
   timeRange: TimeRange,
-  searchTerm?: string
+  searchTerm?: string,
+  onProgress?: (completions: Completion[]) => void
 ): Promise<Completion[]> {
-  return getLabelNamesForCompletions(metric, '', false, otherLabels, dataProvider, timeRange, searchTerm);
+  return getLabelNamesForCompletions(metric, '', false, otherLabels, dataProvider, timeRange, searchTerm, onProgress);
 }
 
 async function getLabelValues(
@@ -212,10 +235,20 @@ async function getLabelValues(
   otherLabels: Label[],
   dataProvider: DataProvider,
   timeRange: TimeRange,
-  searchTerm?: string
+  searchTerm?: string,
+  onProgress?: (values: string[]) => void
 ): Promise<string[]> {
   const selector = makeSelector(metric, otherLabels);
-  return await dataProvider.queryLabelValues(timeRange, labelName, selector, DEFAULT_COMPLETION_LIMIT, searchTerm);
+  return onProgress
+    ? await dataProvider.queryLabelValues(
+        timeRange,
+        labelName,
+        selector,
+        DEFAULT_COMPLETION_LIMIT,
+        searchTerm,
+        onProgress
+      )
+    : await dataProvider.queryLabelValues(timeRange, labelName, selector, DEFAULT_COMPLETION_LIMIT, searchTerm);
 }
 
 async function getLabelValuesForMetricCompletions(
@@ -225,14 +258,21 @@ async function getLabelValuesForMetricCompletions(
   otherLabels: Label[],
   dataProvider: DataProvider,
   timeRange: TimeRange,
-  searchTerm?: string
+  searchTerm?: string,
+  onProgress?: (completions: Completion[]) => void
 ): Promise<Completion[]> {
-  const values = await getLabelValues(metric, labelName, otherLabels, dataProvider, timeRange, searchTerm);
-  return values.map((text) => ({
-    type: 'LABEL_VALUE',
-    label: text,
-    insertText: formatLabelValueForCompletion(text, betweenQuotes),
-  }));
+  const toCompletions = (values: string[]): Completion[] =>
+    values.map((text) => ({
+      type: 'LABEL_VALUE',
+      label: text,
+      insertText: formatLabelValueForCompletion(text, betweenQuotes),
+    }));
+  const values = onProgress
+    ? await getLabelValues(metric, labelName, otherLabels, dataProvider, timeRange, searchTerm, (results) =>
+        onProgress(toCompletions(results))
+      )
+    : await getLabelValues(metric, labelName, otherLabels, dataProvider, timeRange, searchTerm);
+  return toCompletions(values);
 }
 
 function formatLabelValueForCompletion(value: string, betweenQuotes: boolean): string {
@@ -245,7 +285,8 @@ export async function getCompletions(
   dataProvider: DataProvider,
   timeRange: TimeRange,
   searchTerm?: string,
-  triggerType: TriggerType = 'full'
+  triggerType: TriggerType = 'full',
+  onProgress?: (completions: Completion[]) => void
 ): Promise<Completion[]> {
   switch (situation.type) {
     case 'RANGE_MODIFIER':
@@ -259,20 +300,25 @@ export async function getCompletions(
       return Promise.resolve(DURATION_COMPLETIONS);
     case 'IN_FUNCTION':
       return triggerType === 'full'
-        ? getAllFunctionsAndMetricNamesCompletions(searchTerm, dataProvider, timeRange)
+        ? getAllFunctionsAndMetricNamesCompletions(searchTerm, dataProvider, timeRange, onProgress)
         : getFunctionsOnlyCompletions();
     case 'AT_ROOT': {
       return triggerType === 'full'
-        ? getAllFunctionsAndMetricNamesCompletions(searchTerm, dataProvider, timeRange)
+        ? getAllFunctionsAndMetricNamesCompletions(searchTerm, dataProvider, timeRange, onProgress)
         : getFunctionsOnlyCompletions();
     }
     case 'EMPTY': {
       if (triggerType === 'partial') {
         return Promise.resolve(getFunctionCompletions());
       }
-      const metricNames = await getAllMetricNamesCompletions(searchTerm, dataProvider, timeRange);
       const historyCompletions = getAllHistoryCompletions(dataProvider);
-      return Promise.resolve([...historyCompletions, ...getFunctionCompletions(), ...metricNames]);
+      const staticCompletions = [...historyCompletions, ...getFunctionCompletions()];
+      const metricNames = onProgress
+        ? await getAllMetricNamesCompletions(searchTerm, dataProvider, timeRange, (completions) =>
+            onProgress([...staticCompletions, ...completions])
+          )
+        : await getAllMetricNamesCompletions(searchTerm, dataProvider, timeRange);
+      return Promise.resolve([...staticCompletions, ...metricNames]);
     }
     case 'IN_LABEL_SELECTOR_NO_LABEL_NAME':
       return getLabelNamesForSelectorCompletions(
@@ -280,7 +326,8 @@ export async function getCompletions(
         situation.otherLabels,
         dataProvider,
         timeRange,
-        searchTerm
+        searchTerm,
+        onProgress
       );
     case 'IN_GROUPING':
       return getLabelNamesForByCompletions(
@@ -288,7 +335,8 @@ export async function getCompletions(
         situation.otherLabels,
         dataProvider,
         timeRange,
-        searchTerm
+        searchTerm,
+        onProgress
       );
     case 'IN_LABEL_SELECTOR_WITH_LABEL_NAME':
       return getLabelValuesForMetricCompletions(
@@ -298,7 +346,8 @@ export async function getCompletions(
         situation.otherLabels,
         dataProvider,
         timeRange,
-        searchTerm
+        searchTerm,
+        onProgress
       );
     default:
       throw new NeverCaseError(situation);

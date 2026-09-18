@@ -19,6 +19,8 @@ export interface DataProviderParams {
   historyProvider: Array<HistoryItem<PromQuery>>;
 }
 
+type ProgressiveResultsCallback = (results: string[]) => void;
+
 export class DataProvider {
   readonly languageProvider: PrometheusLanguageProviderInterface;
   readonly historyProvider: Array<HistoryItem<PromQuery>>;
@@ -43,19 +45,33 @@ export class DataProvider {
    * Queries metric names with optional filtering.
    * Safely constructs regex patterns and handles errors.
    */
-  queryMetricNames = async (timeRange: TimeRange, searchTerm: string | undefined): Promise<string[]> => {
+  queryMetricNames = async (
+    timeRange: TimeRange,
+    searchTerm: string | undefined,
+    onProgress?: ProgressiveResultsCallback
+  ): Promise<string[]> => {
     try {
       const searchClient = this.languageProvider.getSearchApiClient?.();
       if (searchClient) {
         this.metricSearchAbortController?.abort();
         this.metricSearchAbortController = new AbortController();
+        const streamedResults: string[] = [];
+        const publishBatch = (batch: Array<{ name: string }>) => {
+          streamedResults.push(...batch.map((result) => result.name));
+          onProgress?.(streamedResults.slice());
+        };
 
         try {
           const response = await searchClient.searchMetricNames(timeRange, searchTerm ?? '', {
             limit: DEFAULT_COMPLETION_LIMIT,
+            onBatch: publishBatch,
+            retainResults: false,
             signal: this.metricSearchAbortController.signal,
           });
-          return response.results.map((result) => result.name);
+          if (streamedResults.length === 0) {
+            publishBatch(response.results);
+          }
+          return streamedResults;
         } catch (error) {
           if (!(error instanceof SearchApiUnavailableError)) {
             throw error;
@@ -76,7 +92,9 @@ export class DataProvider {
         DEFAULT_COMPLETION_LIMIT
       );
 
-      return Array.isArray(result) ? result : [];
+      const metricNames = Array.isArray(result) ? result : [];
+      onProgress?.(metricNames);
+      return metricNames;
     } catch (error) {
       if (!isAbortError(error)) {
         console.warn('Failed to query metric names:', error);
@@ -89,20 +107,31 @@ export class DataProvider {
     timeRange: TimeRange,
     match?: string,
     limit?: number,
-    searchTerm?: string
+    searchTerm?: string,
+    onProgress?: ProgressiveResultsCallback
   ): Promise<string[]> => {
     const searchClient = this.languageProvider.getSearchApiClient?.();
     if (searchClient && searchTerm) {
       this.labelKeySearchAbortController?.abort();
       this.labelKeySearchAbortController = new AbortController();
+      const streamedResults: string[] = [];
+      const publishBatch = (batch: Array<{ name: string }>) => {
+        streamedResults.push(...batch.map((result) => result.name));
+        onProgress?.(streamedResults.slice());
+      };
 
       try {
         const response = await searchClient.searchLabelNames(timeRange, searchTerm, {
           limit: limit ?? DEFAULT_COMPLETION_LIMIT,
           match: match ? this.languageProvider.datasource.interpolateString(match) : undefined,
+          onBatch: publishBatch,
+          retainResults: false,
           signal: this.labelKeySearchAbortController.signal,
         });
-        return response.results.map((result) => result.name);
+        if (streamedResults.length === 0) {
+          publishBatch(response.results);
+        }
+        return streamedResults;
       } catch (error) {
         if (!(error instanceof SearchApiUnavailableError)) {
           throw error;
@@ -110,7 +139,9 @@ export class DataProvider {
       }
     }
 
-    return this.languageProvider.queryLabelKeys(timeRange, match, limit);
+    const labelKeys = await this.languageProvider.queryLabelKeys(timeRange, match, limit);
+    onProgress?.(labelKeys);
+    return labelKeys;
   };
 
   queryLabelValues = async (
@@ -118,12 +149,18 @@ export class DataProvider {
     labelKey: string,
     match?: string,
     limit?: number,
-    searchTerm?: string
+    searchTerm?: string,
+    onProgress?: ProgressiveResultsCallback
   ): Promise<string[]> => {
     const searchClient = this.languageProvider.getSearchApiClient?.();
     if (searchClient && searchTerm) {
       this.labelValueSearchAbortController?.abort();
       this.labelValueSearchAbortController = new AbortController();
+      const streamedResults: string[] = [];
+      const publishBatch = (batch: Array<{ value: string }>) => {
+        streamedResults.push(...batch.map((result) => result.value));
+        onProgress?.(streamedResults.slice());
+      };
 
       try {
         const response = await searchClient.searchLabelValues(
@@ -133,10 +170,15 @@ export class DataProvider {
           {
             limit: limit ?? DEFAULT_COMPLETION_LIMIT,
             match: match ? this.languageProvider.datasource.interpolateString(match) : undefined,
+            onBatch: publishBatch,
+            retainResults: false,
             signal: this.labelValueSearchAbortController.signal,
           }
         );
-        return response.results.map((result) => result.value);
+        if (streamedResults.length === 0) {
+          publishBatch(response.results);
+        }
+        return streamedResults;
       } catch (error) {
         if (!(error instanceof SearchApiUnavailableError)) {
           throw error;
@@ -144,7 +186,9 @@ export class DataProvider {
       }
     }
 
-    return this.languageProvider.queryLabelValues(timeRange, labelKey, match, limit);
+    const labelValues = await this.languageProvider.queryLabelValues(timeRange, labelKey, match, limit);
+    onProgress?.(labelValues);
+    return labelValues;
   };
 
   dispose(): void {
