@@ -33,6 +33,9 @@ ci/
 /playwright/.cache/
 /playwright/.auth/
 
+# Discovery benchmark fixtures and trial records
+benchmarks/discovery/out/
+
 # Editor
 .idea
 .eslintcache

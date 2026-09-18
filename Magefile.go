@@ -38,7 +38,10 @@ func Test() error {
 	}
 	// pkg/promlib has its own go.mod, so ./pkg/... in the root module stops at the module
 	// boundary and never reaches it. Run its tests explicitly as a separate module.
-	return sh.RunV("go", "test", "-C", "./pkg/promlib", "./...")
+	if err := sh.RunV("go", "test", "-C", "./pkg/promlib", "./..."); err != nil {
+		return err
+	}
+	return sh.RunV("go", "test", "-C", "./benchmarks/discovery", "./...")
 }
 
 // TestRace() wraps the plugin SDK's Test to make it accessible since we're
@@ -49,7 +52,10 @@ func TestRace() error {
 	}
 	// pkg/promlib has its own go.mod, so ./pkg/... in the root module stops at the module
 	// boundary and never reaches it. Run its tests explicitly as a separate module.
-	return sh.RunV("go", "test", "-C", "./pkg/promlib", "-race", "./...")
+	if err := sh.RunV("go", "test", "-C", "./pkg/promlib", "-race", "./..."); err != nil {
+		return err
+	}
+	return sh.RunV("go", "test", "-C", "./benchmarks/discovery", "-race", "./...")
 }
 
 func Debugger() error {

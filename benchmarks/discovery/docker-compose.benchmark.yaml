@@ -1,0 +1,81 @@
+# Discovery API benchmark stack.
+#
+# Run from the repository root after generating a dataset:
+#   npm run bench:discovery:data -- generate --scale tiny --shape mixed --storage active
+#   docker compose --project-directory . -f benchmarks/discovery/docker-compose.benchmark.yaml up --build
+#
+# Stop the default devenv stack first. This file binds the same Grafana and Prometheus ports.
+
+name: discovery-bench
+
+services:
+  discovery-fixture:
+    build:
+      context: ./benchmarks/discovery
+    command:
+      - serve
+      - --addr
+      - :9115
+      - --metrics-file
+      - /data/active.prom
+    volumes:
+      - ${DISCOVERY_BENCH_DATA:-./benchmarks/discovery/out/tiny-mixed-active}:/data:ro
+    ports:
+      - 9115:9115/tcp
+    healthcheck:
+      test: ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://localhost:9115/metrics']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  prometheus:
+    image: prom/prometheus:v3.13.3
+    container_name: discovery-bench-prometheus
+    volumes:
+      - ./benchmarks/discovery/prometheus/benchmark.yml:/etc/prometheus/prometheus.yml:ro
+      - ${DISCOVERY_BENCH_DATA:-./benchmarks/discovery/out/tiny-mixed-active}/tsdb:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.listen-address=0.0.0.0:9090
+      - --enable-feature=search-api,promql-extended-range-selectors
+    ports:
+      - 9090:9090/tcp
+    depends_on:
+      discovery-fixture:
+        condition: service_healthy
+
+  grafana:
+    user: root
+    container_name: grafana-prometheus-datasource-bench
+    build:
+      context: ./.config
+      args:
+        grafana_image: ${GRAFANA_IMAGE:-grafana-enterprise}
+        grafana_version: ${GRAFANA_VERSION:-13.1.0}
+        development: ${DEVELOPMENT:-false}
+        anonymous_auth_enabled: ${ANONYMOUS_AUTH_ENABLED:-true}
+    ports:
+      - 3000:3000/tcp
+    volumes:
+      - ./dist:/var/lib/grafana/plugins/grafana-prometheus-datasource
+      - ./provisioning:/etc/grafana/provisioning
+    environment:
+      NODE_ENV: development
+      GF_LOG_FILTERS: plugin.prometheus:debug
+      GF_LOG_LEVEL: debug
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: prometheus
+      GF_FEATURE_TOGGLES_splashScreen: 'false'
+    depends_on:
+      prometheus:
+        condition: service_started
+    configs:
+      - source: grafana_custom_ini
+        target: /etc/grafana/grafana.ini
+
+configs:
+  grafana_custom_ini:
+    content: |
+      [plugin.prometheus]
+      as_external = true

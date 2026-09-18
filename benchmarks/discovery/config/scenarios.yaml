@@ -1,0 +1,43 @@
+seed: 20260917
+grafana:
+  search_uid: prometheus-search-api
+  labels_uid: prometheus-direct
+scales:
+  tiny: 200
+  10k: 10000
+  100k: 100000
+profiles:
+  smoke:
+    scales: [tiny]
+    shapes: [mixed]
+    storage: [active]
+    windows: [active]
+    endpoints: [metric_names, label_names, label_values]
+    query_kinds: [empty, exact, prefix, multi-word, typo, utf8, no-match]
+    selectors: [none]
+    limits: [1000]
+    batch_sizes: [100]
+    concurrency: [1]
+    cancel: [none]
+    networks: [local]
+    modes: [controlled]
+    cache_classes: [storage_warm]
+    warmups: 1
+    measured_trials: 2
+  full:
+    scales: [10k, 100k]
+    shapes: [metric-heavy, value-heavy, mixed]
+    storage: [active, historical, mixed]
+    windows: [active, historical, mixed]
+    endpoints: [metric_names, label_names, label_values]
+    query_kinds: [empty, exact, prefix, infix, multi-word, typo, rare, common, utf8, no-match]
+    selectors: [none, one, several]
+    limits: [100, 1000, 10000]
+    batch_sizes: [25, 100, 250, 1000]
+    concurrency: [1, 4, 16]
+    cancel: [none, before_headers, after_first_batch, halfway]
+    networks: [local, slow4g, fast3g, slow3g]
+    modes: [controlled, product]
+    cache_classes: [browser_cold, client_warm, process_cold, storage_warm, cluster_cache_cold]
+    warmups: 5
+    measured_trials: 30
