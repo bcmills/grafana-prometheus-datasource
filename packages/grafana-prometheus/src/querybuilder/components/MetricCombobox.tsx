@@ -56,19 +56,6 @@ export function MetricCombobox({
       setIsLoadingOptions(true);
       setMetricOptions([]);
 
-      if (!input.length) {
-        const metrics = await onGetMetrics();
-        if (searchId === latestSearchIdRef.current) {
-          setMetricOptions(
-            metrics.map((option) => ({
-              label: option.label ?? option.value,
-              value: option.value,
-            }))
-          );
-        }
-        return;
-      }
-
       const searchClient = datasource.languageProvider.getSearchApiClient?.();
       if (searchClient) {
         const abortController = new AbortController();
@@ -106,6 +93,19 @@ export function MetricCombobox({
             throw error;
           }
         }
+      }
+
+      if (!input.length) {
+        const metrics = await onGetMetrics();
+        if (searchId === latestSearchIdRef.current) {
+          setMetricOptions(
+            metrics.map((option) => ({
+              label: option.label ?? option.value,
+              value: option.value,
+            }))
+          );
+        }
+        return;
       }
 
       const match = formatKeyValueStrings(input, labelsFilters);

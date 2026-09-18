@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import '@testing-library/jest-dom';
@@ -79,6 +79,31 @@ describe('MetricCombobox', () => {
     expect(screen.getByRole('combobox', { name: 'Select metric' })).toBeInTheDocument();
   });
 
+  it('streams Search API batches when the combobox is opened with empty input', async () => {
+    let finishSearch: ((response: { results: never[]; warnings: never[]; hasMore: boolean }) => void) | undefined;
+    const searchMetricNames = jest.fn().mockImplementation((_timeRange, term, options) => {
+      expect(term).toBe('');
+      options.onBatch([{ name: 'first_metric' }]);
+      return new Promise((resolve) => {
+        finishSearch = resolve;
+      });
+    });
+    (mockLanguageProvider.getSearchApiClient as jest.Mock).mockReturnValue({ searchMetricNames });
+
+    render(<MetricCombobox {...defaultProps} />);
+
+    const combobox = screen.getByRole('combobox', { name: 'Select metric' });
+    await userEvent.click(combobox);
+
+    expect(await screen.findByRole('option', { name: 'first_metric' })).toBeInTheDocument();
+    expect(mockOnGetMetrics).not.toHaveBeenCalled();
+    expect(finishSearch).toBeDefined();
+
+    await act(async () => {
+      finishSearch?.({ results: [], warnings: [], hasMore: false });
+    });
+  });
+
   it('fetches top metrics when the combobox is opened ', async () => {
     render(<MetricCombobox {...defaultProps} />);
 
@@ -129,14 +154,16 @@ describe('MetricCombobox', () => {
     await userEvent.type(combobox, 'http   req');
 
     expect(await screen.findByRole('option', { name: 'http_requests_total' })).toBeInTheDocument();
-    expect(searchMetricNames).toHaveBeenCalledWith(
-      defaultProps.timeRange,
-      'http   req',
-      expect.objectContaining({
-        limit: DEFAULT_COMPLETION_LIMIT,
-        signal: expect.any(AbortSignal),
-      })
-    );
+    await waitFor(() => {
+      expect(searchMetricNames).toHaveBeenCalledWith(
+        defaultProps.timeRange,
+        'http   req',
+        expect.objectContaining({
+          limit: DEFAULT_COMPLETION_LIMIT,
+          signal: expect.any(AbortSignal),
+        })
+      );
+    });
     expect(mockDatasource.languageProvider.queryLabelValues).not.toHaveBeenCalled();
   });
 
@@ -215,13 +242,15 @@ describe('MetricCombobox', () => {
     await userEvent.type(combobox, 'http');
 
     expect(await screen.findByRole('option', { name: 'http_requests_total' })).toBeInTheDocument();
-    expect(searchMetricNames).toHaveBeenCalledWith(
-      defaultProps.timeRange,
-      'http',
-      expect.objectContaining({
-        match: '{job!="grafana", environment=~"prod.*"}',
-      })
-    );
+    await waitFor(() => {
+      expect(searchMetricNames).toHaveBeenCalledWith(
+        defaultProps.timeRange,
+        'http',
+        expect.objectContaining({
+          match: '{job!="grafana", environment=~"prod.*"}',
+        })
+      );
+    });
   });
 
   it('falls back to standard discovery when fuzzy metric search is unavailable', async () => {
