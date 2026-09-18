@@ -45,6 +45,7 @@ const setupMocks = () => {
   });
   mockLanguageProvider.queryLabelValues = jest.fn();
   mockLanguageProvider.queryLabelKeys = jest.fn();
+  mockLanguageProvider.getSearchApiClient = jest.fn().mockReturnValue(undefined);
 
   // Mock standard responses
   (mockLanguageProvider.queryLabelValues as jest.Mock).mockImplementation((_timeRange: TimeRange, label: string) => {

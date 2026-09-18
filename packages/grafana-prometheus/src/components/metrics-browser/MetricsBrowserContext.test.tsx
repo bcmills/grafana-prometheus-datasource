@@ -1,4 +1,4 @@
-import { render, renderHook, screen, waitFor } from '@testing-library/react';
+import { render, renderHook, screen, waitFor, act } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { type ReactNode } from 'react';
 
@@ -149,6 +149,43 @@ describe('MetricsBrowserContext', () => {
       await waitFor(() => {
         expect(screen.getByTestId('metrics-count').textContent).toBe('3');
       });
+    });
+
+    it('appends Search API metric batches before the request completes', async () => {
+      let finishSearch: (() => void) | undefined;
+      const searchMetricNames = jest.fn().mockImplementation((_timeRange, _term, options) => {
+        options.onBatch([{ name: 'first_metric' }]);
+        return new Promise((resolve) => {
+          finishSearch = () => {
+            options.onBatch([{ name: 'second_metric' }]);
+            resolve({ results: [], warnings: [], hasMore: false });
+          };
+        });
+      });
+      const { mockTimeRange, mockLanguageProvider, mockOnChange } = setupTest();
+      mockLanguageProvider.getSearchApiClient = jest.fn().mockReturnValue({ searchMetricNames });
+
+      render(
+        <MetricsBrowserProvider
+          timeRange={mockTimeRange}
+          languageProvider={mockLanguageProvider}
+          onChange={mockOnChange}
+        >
+          <TestComponent />
+        </MetricsBrowserProvider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('metrics-count').textContent).toBe('1');
+      });
+
+      await act(async () => {
+        finishSearch?.();
+      });
+      await waitFor(() => {
+        expect(screen.getByTestId('metrics-count').textContent).toBe('2');
+      });
+      expect(searchMetricNames).toHaveBeenCalled();
     });
 
     it('should restore selected labels from storage on initialization', async () => {

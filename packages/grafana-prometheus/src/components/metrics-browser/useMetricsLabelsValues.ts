@@ -5,6 +5,7 @@ import { type TimeRange } from '@grafana/data';
 
 import { EMPTY_SELECTOR, LAST_USED_LABELS_KEY, METRIC_LABEL } from '../../constants';
 import { type PrometheusLanguageProviderInterface } from '../../language_provider';
+import { SearchApiUnavailableError } from '../../search_api_stream';
 
 import { type Metric } from './MetricsBrowserContext';
 import { buildSelector } from './selectorBuilder';
@@ -92,6 +93,42 @@ export const useMetricsLabelsValues = (timeRange: TimeRange, languageProvider: P
   const fetchMetrics = useCallback(
     async (safeSelector?: string) => {
       try {
+        let searchClient;
+        try {
+          searchClient = languageProvider.getSearchApiClient?.();
+        } catch {
+          searchClient = undefined;
+        }
+        if (searchClient) {
+          const streamed: Metric[] = [];
+          const publishBatch = (batch: Array<{ name: string }>) => {
+            streamed.push(
+              ...batch.map((result) => ({
+                name: result.name,
+                details: getMetricDetails(result.name),
+              }))
+            );
+            setMetrics([...streamed]);
+          };
+
+          try {
+            const response = await searchClient.searchMetricNames(timeRangeRef.current, '', {
+              limit: effectiveLimit,
+              match: safeSelector,
+              onBatch: publishBatch,
+              retainResults: false,
+            });
+            if (streamed.length === 0) {
+              publishBatch(response.results);
+            }
+            return streamed;
+          } catch (error) {
+            if (!(error instanceof SearchApiUnavailableError)) {
+              throw error;
+            }
+          }
+        }
+
         const fetchedMetrics = await languageProvider.queryLabelValues(
           timeRangeRef.current,
           METRIC_LABEL,
