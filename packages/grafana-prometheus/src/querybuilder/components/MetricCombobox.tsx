@@ -1,12 +1,13 @@
 import { css } from '@emotion/css';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { debounce } from 'lodash';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { type GrafanaTheme2, type SelectableValue, type TimeRange } from '@grafana/data';
 import { selectors } from '@grafana/e2e-selectors';
 import { Trans, t } from '@grafana/i18n';
 import { EditorField, EditorFieldGroup } from '@grafana/plugin-ui';
 import { reportInteraction } from '@grafana/runtime';
-import { Button, InlineField, InlineFieldRow, Combobox, type ComboboxOption, useTheme2 } from '@grafana/ui';
+import { Button, InlineField, InlineFieldRow, Select, useTheme2 } from '@grafana/ui';
 
 import { DEFAULT_COMPLETION_LIMIT, METRIC_LABEL } from '../../constants';
 import { type PrometheusDatasource } from '../../datasource';
@@ -39,32 +40,67 @@ export function MetricCombobox({
   timeRange,
 }: Readonly<MetricComboboxProps>) {
   const [metricsModalOpen, setMetricsModalOpen] = useState(false);
+  const [metricOptions, setMetricOptions] = useState<Array<SelectableValue<string>>>([]);
+  const [metricInput, setMetricInput] = useState('');
+  const [isLoadingOptions, setIsLoadingOptions] = useState(false);
   const searchAbortControllerRef = useRef<AbortController>();
+  const latestSearchIdRef = useRef(0);
   const styles = getStyles(useTheme2());
 
-  /**
-   * Gets label_values response from prometheus API for current autocomplete query string and any existing labels filters
-   */
-  const getMetricLabels = useCallback(
-    async (query: string) => {
+  const loadMetricOptions = useCallback(
+    async (input: string, searchId: number) => {
+      if (searchId !== latestSearchIdRef.current) {
+        return;
+      }
+
+      setIsLoadingOptions(true);
+      setMetricOptions([]);
+
+      if (!input.length) {
+        const metrics = await onGetMetrics();
+        if (searchId === latestSearchIdRef.current) {
+          setMetricOptions(
+            metrics.map((option) => ({
+              label: option.label ?? option.value,
+              value: option.value,
+            }))
+          );
+        }
+        return;
+      }
+
       const searchClient = datasource.languageProvider.getSearchApiClient?.();
       if (searchClient) {
-        searchAbortControllerRef.current?.abort();
         const abortController = new AbortController();
         searchAbortControllerRef.current = abortController;
         const rawMatch = formatLabelFiltersToString(labelsFilters) || undefined;
         const match = rawMatch ? datasource.interpolateString(rawMatch) : undefined;
-
-        try {
-          const response = await searchClient.searchMetricNames(timeRange, query, {
-            limit: DEFAULT_COMPLETION_LIMIT,
-            match,
-            signal: abortController.signal,
-          });
-          return response.results.map((result) => ({
+        let streamedOptions: Array<SelectableValue<string>> = [];
+        const publishBatch = (batch: Array<{ name: string }>) => {
+          if (searchId !== latestSearchIdRef.current) {
+            return;
+          }
+          const remaining = DEFAULT_COMPLETION_LIMIT - streamedOptions.length;
+          const nextOptions = batch.slice(0, Math.max(0, remaining)).map((result) => ({
             label: result.name,
             value: result.name,
           }));
+          streamedOptions = [...streamedOptions, ...nextOptions];
+          setMetricOptions(streamedOptions);
+        };
+
+        try {
+          const response = await searchClient.searchMetricNames(timeRange, input, {
+            limit: DEFAULT_COMPLETION_LIMIT,
+            match,
+            onBatch: publishBatch,
+            retainResults: false,
+            signal: abortController.signal,
+          });
+          if (streamedOptions.length === 0) {
+            publishBatch(response.results);
+          }
+          return;
         } catch (error) {
           if (!(error instanceof SearchApiUnavailableError)) {
             throw error;
@@ -72,55 +108,122 @@ export function MetricCombobox({
         }
       }
 
-      const match = formatKeyValueStrings(query, labelsFilters);
+      const match = formatKeyValueStrings(input, labelsFilters);
       const results = await datasource.languageProvider.queryLabelValues(timeRange, METRIC_LABEL, match);
 
-      const resultsOptions = results.map((result) => {
-        return {
-          label: result,
-          value: result,
-        };
-      });
-      return resultsOptions;
+      if (searchId === latestSearchIdRef.current) {
+        setMetricOptions(
+          results.map((result) => ({
+            label: result,
+            value: result,
+          }))
+        );
+      }
     },
-    [datasource, labelsFilters, timeRange]
+    [datasource, labelsFilters, onGetMetrics, timeRange]
   );
 
-  useEffect(() => () => searchAbortControllerRef.current?.abort(), []);
+  const debouncedLoadMetricOptions = useMemo(
+    () =>
+      debounce((input: string, searchId: number) => {
+        void loadMetricOptions(input, searchId)
+          .catch((error) => {
+            if (!(error instanceof Error && error.name === 'AbortError')) {
+              console.warn('Failed to query metric names:', error);
+            }
+          })
+          .finally(() => {
+            if (searchId === latestSearchIdRef.current) {
+              setIsLoadingOptions(false);
+            }
+          });
+      }, 200),
+    [loadMetricOptions]
+  );
+
+  const requestMetricOptions = useCallback(
+    (input: string, immediate = false) => {
+      const searchId = ++latestSearchIdRef.current;
+      searchAbortControllerRef.current?.abort();
+      setIsLoadingOptions(true);
+      if (immediate) {
+        void loadMetricOptions(input, searchId)
+          .catch((error) => {
+            if (!(error instanceof Error && error.name === 'AbortError')) {
+              console.warn('Failed to query metric names:', error);
+            }
+          })
+          .finally(() => {
+            if (searchId === latestSearchIdRef.current) {
+              setIsLoadingOptions(false);
+            }
+          });
+      } else {
+        debouncedLoadMetricOptions(input, searchId);
+      }
+    },
+    [debouncedLoadMetricOptions, loadMetricOptions]
+  );
+
+  const closeMetricOptions = useCallback(() => {
+    latestSearchIdRef.current++;
+    searchAbortControllerRef.current?.abort();
+    debouncedLoadMetricOptions.cancel();
+    setIsLoadingOptions(false);
+  }, [debouncedLoadMetricOptions]);
+
+  useEffect(
+    () => () => {
+      latestSearchIdRef.current++;
+      searchAbortControllerRef.current?.abort();
+      debouncedLoadMetricOptions.cancel();
+    },
+    [debouncedLoadMetricOptions]
+  );
 
   const onComboboxChange = useCallback(
-    (opt: ComboboxOption<string> | null) => {
+    (opt: SelectableValue<string> | null) => {
+      setMetricInput('');
       onChange({ ...query, metric: opt?.value ?? '' });
     },
     [onChange, query]
   );
 
-  const loadOptions = useCallback(
-    async (input: string): Promise<ComboboxOption[]> => {
-      const metrics = input.length ? await getMetricLabels(input) : await onGetMetrics();
-
-      return metrics.map((option) => ({
-        label: option.label ?? option.value,
-        value: option.value,
-      }));
+  const onMetricInputChange = useCallback(
+    (input: string, actionMeta: { action: string }) => {
+      if (actionMeta.action === 'input-change') {
+        setMetricInput(input);
+        requestMetricOptions(input);
+      }
     },
-    [getMetricLabels, onGetMetrics]
+    [requestMetricOptions]
   );
 
   const asyncSelect = () => {
     return (
       <div className={styles.wrapper}>
-        <Combobox
+        <Select<string>
+          aria-label={t(
+            'grafana-prometheus.querybuilder.metric-combobox.async-select.placeholder-select-metric',
+            'Select metric'
+          )}
           placeholder={t(
             'grafana-prometheus.querybuilder.metric-combobox.async-select.placeholder-select-metric',
             'Select metric'
           )}
           width="auto"
-          minWidth={25}
-          options={loadOptions}
-          value={query.metric}
+          options={metricOptions}
+          inputValue={metricInput}
+          isLoading={isLoadingOptions}
+          value={query.metric ? { label: query.metric, value: query.metric } : null}
           onChange={onComboboxChange}
-          createCustomValue
+          onInputChange={onMetricInputChange}
+          filterOption={() => true}
+          onOpenMenu={() => requestMetricOptions(metricInput, true)}
+          onCloseMenu={closeMetricOptions}
+          allowCustomValue
+          allowCreateWhileLoading
+          onCreateOption={(value) => onChange({ ...query, metric: value })}
           data-testid={selectors.components.DataSource.Prometheus.queryEditor.builder.metricSelect}
         />
         <Button
