@@ -94,6 +94,32 @@ describe.each(metricNameCompletionSituations)('metric name completions in situat
     expect(completions.every((c) => c.type === 'FUNCTION')).toBe(true);
     expect(spy).not.toHaveBeenCalled();
   });
+
+  it('publishes functions before metric names when streaming', async () => {
+    let resolveMetrics: ((names: string[]) => void) | undefined;
+    jest.spyOn(dataProvider, 'queryMetricNames').mockImplementation((_range, _term, onProgress) => {
+      return new Promise((resolve) => {
+        resolveMetrics = (names) => {
+          onProgress?.(names);
+          resolve(names);
+        };
+      });
+    });
+    const onProgress = jest.fn();
+
+    const pending = getCompletions(situation, dataProvider, timeRange, undefined, 'full', onProgress);
+
+    await Promise.resolve();
+    expect(onProgress).toHaveBeenCalled();
+    expect(onProgress.mock.calls[0][0].every((item: { type: string }) => item.type !== 'METRIC_NAME')).toBe(true);
+    expect(onProgress.mock.calls[0][0].some((item: { type: string }) => item.type === 'FUNCTION')).toBe(true);
+
+    resolveMetrics?.(sampleMetricNames);
+    const completions = await pending;
+    expect(completions.filter((item) => item.type === 'METRIC_NAME').map((item) => item.label)).toEqual(
+      sampleMetricNames
+    );
+  });
 });
 
 describe('metric name completions (utf8)', () => {

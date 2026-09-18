@@ -98,6 +98,7 @@ async function getAllFunctionsAndMetricNamesCompletions(
   onProgress?: (completions: Completion[]) => void
 ): Promise<Completion[]> {
   const functions = getFunctionCompletions();
+  onProgress?.(functions);
   const metricNames = onProgress
     ? await getAllMetricNamesCompletions(searchTerm, dataProvider, timeRange, (completions) =>
         onProgress([...functions, ...completions])
@@ -313,6 +314,7 @@ export async function getCompletions(
       }
       const historyCompletions = getAllHistoryCompletions(dataProvider);
       const staticCompletions = [...historyCompletions, ...getFunctionCompletions()];
+      onProgress?.(staticCompletions);
       const metricNames = onProgress
         ? await getAllMetricNamesCompletions(searchTerm, dataProvider, timeRange, (completions) =>
             onProgress([...staticCompletions, ...completions])
