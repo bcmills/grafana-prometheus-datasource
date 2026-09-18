@@ -102,7 +102,7 @@ export function getCompletionProvider(
     isManualTriggerRequested: false,
   };
   let activeRequestId = 0;
-  let activeRequestKey: string | undefined;
+  let activeRequestIdentity: string | undefined;
   let latestItems: Completion[] = [];
   let hasProgress = false;
   let isComplete = false;
@@ -159,21 +159,22 @@ export function getCompletionProvider(
     }
 
     const triggerType: TriggerType = getTriggerType(word, model, position, state);
-    const requestKey = [
+    const requestIdentity = [
       model.id,
       model.getValue(),
       position.lineNumber,
       position.column,
       JSON.stringify(situation),
-      triggerType,
     ].join(':');
-
-    if (triggerSuggestions && requestKey === activeRequestKey && (hasProgress || isComplete)) {
+    // Ctrl+Space clears isManualTriggerRequested after 300ms. Later batches
+    // retrigger with triggerType "partial" for short/empty words. Reuse the
+    // in-flight full request instead of replacing it with functions only.
+    if (triggerSuggestions && requestIdentity === activeRequestIdentity && (hasProgress || isComplete)) {
       return Promise.resolve(toCompletionList(latestItems, range, !isComplete));
     }
 
     const requestId = ++activeRequestId;
-    activeRequestKey = requestKey;
+    activeRequestIdentity = requestIdentity;
     latestItems = [];
     hasProgress = false;
     isComplete = false;
@@ -246,7 +247,7 @@ export function getCompletionProvider(
     dispose: () => {
       disposed = true;
       activeRequestId++;
-      activeRequestKey = undefined;
+      activeRequestIdentity = undefined;
       latestItems = [];
     },
   };

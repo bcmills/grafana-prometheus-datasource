@@ -273,6 +273,55 @@ describe('monaco-completion-provider', () => {
       expect(completedResult.incomplete).toBe(false);
     });
 
+    it('keeps an in-flight full request when Ctrl+Space retriggers as partial', async () => {
+      const firstCompletion = {
+        label: 'first_metric',
+        insertText: 'first_metric',
+        type: 'METRIC_NAME' as const,
+      };
+      const secondCompletion = {
+        label: 'second_metric',
+        insertText: 'second_metric',
+        type: 'METRIC_NAME' as const,
+      };
+      let publishProgress: ((items: (typeof firstCompletion)[]) => void) | undefined;
+      mockGetCompletions.mockImplementation((_situation, _provider, _range, _word, _trigger, onProgress) => {
+        publishProgress = onProgress;
+        return new Promise(() => {});
+      });
+      const triggerSuggestions = jest.fn();
+      const mockWord = { word: 'te', startColumn: 1, endColumn: 3 };
+      const model = createMockModel('te', mockWord);
+      const position = createMockPosition(3);
+      const { provider, state } = getCompletionProvider(monaco, dataProvider, timeRange, triggerSuggestions);
+
+      state.isManualTriggerRequested = true;
+      const firstResultPromise = (provider.provideCompletionItems as Function)(model, position);
+      publishProgress?.([firstCompletion]);
+      const firstResult = await firstResultPromise;
+
+      expect(firstResult.suggestions.map((item: { label: string }) => item.label)).toEqual(['first_metric']);
+      expect(mockGetCompletions).toHaveBeenCalledWith(
+        { type: 'EMPTY' },
+        dataProvider,
+        timeRange,
+        'te',
+        'full',
+        expect.any(Function)
+      );
+
+      state.isManualTriggerRequested = false;
+      publishProgress?.([firstCompletion, secondCompletion]);
+      const refreshedResult = await (provider.provideCompletionItems as Function)(model, position);
+
+      expect(refreshedResult.suggestions.map((item: { label: string }) => item.label)).toEqual([
+        'first_metric',
+        'second_metric',
+      ]);
+      expect(refreshedResult.incomplete).toBe(true);
+      expect(mockGetCompletions).toHaveBeenCalledTimes(1);
+    });
+
     it('should add trigger command for items with triggerOnInsert', async () => {
       const mockCompletions = [
         {
