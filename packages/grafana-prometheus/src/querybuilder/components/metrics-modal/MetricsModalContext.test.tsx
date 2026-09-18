@@ -4,6 +4,7 @@ import { type ReactNode } from 'react';
 import { type TimeRange } from '@grafana/data';
 import { reportInteraction } from '@grafana/runtime';
 
+import { PROMETHEUS_QUERY_BUILDER_MAX_RESULTS } from '../../../constants';
 import { type PrometheusLanguageProviderInterface } from '../../../language_provider';
 import { SearchApiUnavailableError } from '../../../search_api_stream';
 import { getMockTimeRange } from '../../../test/mocks/datasource';
@@ -101,6 +102,8 @@ describe('MetricsModalContext', () => {
 
       expect(result.current).toBeDefined();
       expect(result.current.isLoading).toBe(true); // Initially loading
+      expect(result.current.hasMore).toBe(false);
+      expect(result.current.warnings).toEqual([]);
       expect(result.current.filteredMetricsData).toEqual([]);
       expect(result.current.pagination).toEqual({
         pageNum: 1,
@@ -335,6 +338,36 @@ describe('MetricsModalContext', () => {
         resultsCount: 2,
         discoveryApi: 'search',
       });
+    });
+
+    it('caps retained Search API batches and exposes an incomplete result', async () => {
+      const oversizedBatch = Array.from({ length: PROMETHEUS_QUERY_BUILDER_MAX_RESULTS + 1 }, (_, index) => ({
+        name: `metric_${index}`,
+      }));
+      const searchMetricNames = jest.fn().mockImplementation((_timeRange, term, options) => {
+        if (term === '') {
+          return Promise.resolve({ results: [], warnings: [], hasMore: false });
+        }
+        options.onBatch(oversizedBatch);
+        return Promise.resolve({ results: [], warnings: ['result limit reached'], hasMore: true });
+      });
+      const searchLanguageProvider = {
+        ...mockLanguageProvider,
+        hasSearchSupport: jest.fn().mockReturnValue(true),
+        getSearchApiClient: jest.fn().mockReturnValue({ searchMetricNames }),
+      } as unknown as PrometheusLanguageProviderInterface;
+      const { result } = renderHook(() => useMetricsModal(), {
+        wrapper: createWrapper(searchLanguageProvider),
+      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(async () => {
+        await result.current.debouncedBackendSearch(defaultTimeRange, 'metric');
+      });
+
+      expect(result.current.filteredMetricsData).toHaveLength(PROMETHEUS_QUERY_BUILDER_MAX_RESULTS);
+      expect(result.current.hasMore).toBe(true);
+      expect(result.current.warnings).toEqual(['result limit reached']);
     });
 
     it('invalidates an active stream as soon as the search text changes', async () => {

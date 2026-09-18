@@ -6,4 +6,5 @@ export const metricsModaltestIds = {
   useMetric: 'use-metric',
   searchPage: 'search-page',
   resultsPerPage: 'results-per-page',
+  incompleteResults: 'incomplete-results',
 };

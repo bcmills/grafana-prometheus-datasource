@@ -7,6 +7,7 @@ import { t, Trans } from '@grafana/i18n';
 import { reportInteraction } from '@grafana/runtime';
 import { Icon, Input, Modal, MultiSelect, Pagination, Spinner, useStyles2 } from '@grafana/ui';
 
+import { PROMETHEUS_QUERY_BUILDER_MAX_RESULTS } from '../../../constants';
 import { type PrometheusDatasource } from '../../../datasource';
 import { type PromVisualQuery } from '../../types';
 
@@ -32,6 +33,7 @@ const MetricsModalContent = (props: MetricsModalProps) => {
 
   const {
     isLoading,
+    hasMore,
     filteredMetricsData,
     debouncedBackendSearch,
     pagination,
@@ -123,6 +125,20 @@ const MetricsModalContent = (props: MetricsModalProps) => {
               &nbsp;
               <Trans i18nKey="grafana-prometheus.querybuilder.metrics-modal.metrics-pre-filtered">
                 These metrics have been pre-filtered by labels chosen in the label filters.
+              </Trans>
+            </div>
+          </div>
+        )}
+        {hasMore && (
+          <div className={styles.resultsDataFiltered} data-testid={metricsModaltestIds.incompleteResults}>
+            <Icon name="info-circle" size="sm" />
+            <div className={styles.resultsDataFilteredText}>
+              &nbsp;
+              <Trans
+                i18nKey="grafana-prometheus.querybuilder.metrics-modal.incomplete-results"
+                values={{ limit: PROMETHEUS_QUERY_BUILDER_MAX_RESULTS.toLocaleString() }}
+              >
+                Showing the first {'{{limit}}'} results. Refine your search to find other metrics.
               </Trans>
             </div>
           </div>

@@ -37,6 +37,8 @@ type Pagination = {
 type MetricsModalContextValue = {
   isLoading: boolean;
   setIsLoading: (val: boolean) => void;
+  hasMore: boolean;
+  warnings: string[];
   filteredMetricsData: MetricData[];
   debouncedBackendSearch: (
     timeRange: TimeRange,
@@ -67,6 +69,8 @@ export const MetricsModalContextProvider: FC<PropsWithChildren<MetricsModalConte
 }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [metricsData, setMetricsData] = useState<MetricsData>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [pagination, setPagination] = useState<Pagination>({
     pageNum: 1,
     totalPageNum: 1,
@@ -146,10 +150,13 @@ export const MetricsModalContextProvider: FC<PropsWithChildren<MetricsModalConte
 
       setIsLoading(true);
       setMetricsData([]);
+      setHasMore(false);
+      setWarnings([]);
       let resultsCount = 0;
+      let retainedResultsCount = 0;
 
       try {
-        await searchClient.searchMetricNames(searchTimeRange, metricText, {
+        const response = await searchClient.searchMetricNames(searchTimeRange, metricText, {
           includeMetadata: true,
           limit: PROMETHEUS_QUERY_BUILDER_MAX_RESULTS,
           match,
@@ -158,10 +165,20 @@ export const MetricsModalContextProvider: FC<PropsWithChildren<MetricsModalConte
           onBatch: (batch) => {
             resultsCount += batch.length;
             if (searchId === latestSearchIdRef.current) {
-              setMetricsData((current) => [...current, ...batch.map(toMetricData)]);
+              const remaining = PROMETHEUS_QUERY_BUILDER_MAX_RESULTS - retainedResultsCount;
+              const acceptedBatch = batch.slice(0, Math.max(0, remaining));
+              retainedResultsCount += acceptedBatch.length;
+              setMetricsData((current) => [...current, ...acceptedBatch.map(toMetricData)]);
+              if (acceptedBatch.length < batch.length) {
+                setHasMore(true);
+              }
             }
           },
         });
+        if (searchId === latestSearchIdRef.current) {
+          setHasMore((current) => current || response.hasMore);
+          setWarnings(response.warnings);
+        }
       } catch (error) {
         if (error instanceof SearchApiUnavailableError) {
           return false;
@@ -188,6 +205,8 @@ export const MetricsModalContextProvider: FC<PropsWithChildren<MetricsModalConte
     async (searchId = ++latestSearchIdRef.current) => {
       try {
         setIsLoading(true);
+        setHasMore(false);
+        setWarnings([]);
         if (await streamSearch(searchId, timeRange, '', queryLabels)) {
           return;
         }
@@ -246,6 +265,8 @@ export const MetricsModalContextProvider: FC<PropsWithChildren<MetricsModalConte
             }
 
             setIsLoading(true);
+            setHasMore(false);
+            setWarnings([]);
 
             const queryString = regexifyLabelValuesQueryString(metricText);
             const filterArray = queryLabels ? formatPrometheusLabelFilters(queryLabels) : [];
@@ -308,6 +329,8 @@ export const MetricsModalContextProvider: FC<PropsWithChildren<MetricsModalConte
       value={{
         isLoading,
         setIsLoading,
+        hasMore,
+        warnings,
         filteredMetricsData,
         debouncedBackendSearch,
         pagination,

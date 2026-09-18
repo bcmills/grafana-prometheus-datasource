@@ -292,6 +292,23 @@ describe('MetricsModal', () => {
       totalPageNum: 2,
     });
   });
+
+  it('reports when Search API results are incomplete', async () => {
+    const datasource = createDatasource();
+    datasource.languageProvider.getSearchApiClient = jest.fn().mockReturnValue({
+      searchMetricNames: jest.fn().mockImplementation((_timeRange, _term, options) => {
+        options.onBatch([{ name: 'first_metric' }]);
+        return Promise.resolve({ results: [], warnings: [], hasMore: true });
+      }),
+    });
+    const props = createProps(defaultQuery, datasource, []);
+
+    render(<MetricsModal {...props} />);
+
+    expect(await screen.findByTestId(metricsModaltestIds.incompleteResults)).toHaveTextContent(
+      'Showing the first 1,000 results'
+    );
+  });
 });
 
 const defaultQuery: PromVisualQuery = {
