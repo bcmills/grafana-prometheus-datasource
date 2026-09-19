@@ -1348,6 +1348,29 @@ describe('When querying prometheus via check headers X-Dashboard-Id X-Panel-Id a
     expect(httpOptions.headers['X-Panel-Id']).toBe(undefined);
     expect(httpOptions.headers['X-Dashboard-UID']).toBe(undefined);
   });
+
+  it('enables the Search API only when configured', () => {
+    expect(ds.hasSearchApiSupport()).toBe(false);
+
+    const disabledDatasource = new PrometheusDatasource(
+      {
+        ...instanceSettings,
+        jsonData: { ...instanceSettings.jsonData, enableSearchApi: false },
+      },
+      templateSrvStub
+    );
+    const searchDatasource = new PrometheusDatasource(
+      {
+        ...instanceSettings,
+        jsonData: { ...instanceSettings.jsonData, enableSearchApi: true },
+      },
+      templateSrvStub
+    );
+
+    expect(disabledDatasource.hasSearchApiSupport()).toBe(false);
+    // when we wire up the UI the following should be true
+    expect(searchDatasource.hasSearchApiSupport()).toBe(false);
+  });
 });
 
 describe('modifyQuery', () => {
