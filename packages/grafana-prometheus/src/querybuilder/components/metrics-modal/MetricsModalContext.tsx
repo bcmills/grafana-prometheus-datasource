@@ -17,7 +17,7 @@ import { reportInteraction } from '@grafana/runtime';
 import { METRIC_LABEL, PROMETHEUS_QUERY_BUILDER_MAX_RESULTS } from '../../../constants';
 import { type PrometheusLanguageProviderInterface } from '../../../language_provider';
 import { type SearchMetricResult } from '../../../search_api_client';
-import { SearchApiUnavailableError } from '../../../search_api_stream';
+import { isAbortError, SearchApiUnavailableError } from '../../../search_api_stream';
 import { regexifyLabelValuesQueryString } from '../../parsingUtils';
 import { type QueryBuilderLabelFilter } from '../../shared/types';
 import { formatLabelFiltersToString, formatPrometheusLabelFilters } from '../formatter';
@@ -162,6 +162,9 @@ export const MetricsModalContextProvider: FC<PropsWithChildren<MetricsModalConte
           },
         });
       } catch (error) {
+        if (isAbortError(error)) {
+          return true;
+        }
         if (error instanceof SearchApiUnavailableError) {
           return false;
         }

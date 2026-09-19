@@ -3,7 +3,7 @@ import { type HistoryItem, type TimeRange } from '@grafana/data';
 import { DEFAULT_COMPLETION_LIMIT, METRIC_LABEL } from '../../../constants';
 import { type PrometheusLanguageProviderInterface } from '../../../language_provider';
 import { removeQuotesIfExist } from '../../../language_utils';
-import { SearchApiUnavailableError } from '../../../search_api_stream';
+import { isAbortError, SearchApiUnavailableError } from '../../../search_api_stream';
 import { type PromQuery } from '../../../types';
 import { escapeForUtf8Support, isValidLegacyName } from '../../../utf8_support';
 
@@ -57,6 +57,9 @@ export class DataProvider {
           });
           return response.results.map((result) => result.name);
         } catch (error) {
+          if (isAbortError(error)) {
+            return [];
+          }
           if (!(error instanceof SearchApiUnavailableError)) {
             throw error;
           }
@@ -104,6 +107,9 @@ export class DataProvider {
         });
         return response.results.map((result) => result.name);
       } catch (error) {
+        if (isAbortError(error)) {
+          return [];
+        }
         if (!(error instanceof SearchApiUnavailableError)) {
           throw error;
         }
@@ -138,6 +144,9 @@ export class DataProvider {
         );
         return response.results.map((result) => result.value);
       } catch (error) {
+        if (isAbortError(error)) {
+          return [];
+        }
         if (!(error instanceof SearchApiUnavailableError)) {
           throw error;
         }
@@ -171,8 +180,4 @@ export class DataProvider {
 
     return result;
   }
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
 }

@@ -427,6 +427,27 @@ describe('MetricsModalContext', () => {
       ]);
     });
 
+    it('does not fall back when a Search API request is aborted', async () => {
+      const abortError = Object.assign(new Error('The user aborted a request.'), { name: 'AbortError' });
+      const searchMetricNames = jest.fn().mockRejectedValue(abortError);
+      const searchLanguageProvider = {
+        ...mockLanguageProvider,
+        hasSearchSupport: jest.fn().mockReturnValue(true),
+        getSearchApiClient: jest.fn().mockReturnValue({ searchMetricNames }),
+        queryLabelValues: jest.fn().mockResolvedValue(['standard_metric']),
+      } as unknown as PrometheusLanguageProviderInterface;
+      const { result } = renderHook(() => useMetricsModal(), {
+        wrapper: createWrapper(searchLanguageProvider),
+      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(async () => {
+        await result.current.debouncedBackendSearch(defaultTimeRange, 'standard');
+      });
+
+      expect(searchLanguageProvider.queryLabelValues).not.toHaveBeenCalled();
+    });
+
     it('should perform backend search with results', async () => {
       (mockLanguageProvider.queryLabelValues as jest.Mock).mockResolvedValue(['test_metric', 'other_metric']);
 
