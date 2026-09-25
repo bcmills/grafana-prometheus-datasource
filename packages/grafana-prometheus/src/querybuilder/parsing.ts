@@ -305,13 +305,16 @@ function handleFunction(expr: string, node: SyntaxNode, context: Context) {
   const params = [];
   let interval = '';
 
-  // This is a bit of a shortcut to get the interval argument. Reasons are
-  // - interval is not part of the function args per promQL grammar but we model it as argument for the function in
-  //   the query model.
-  // - it is easier to handle template variables this way as template variable is an error for the parser
+  // The Builder models a range selector's interval as a function argument, so read it
+  // from the matrix selector after the vector selector, not from brackets in label values.
+  // Read the source text to preserve template variables that the parser cannot represent.
   if (rangeFunctions.includes(funcName) || funcName.endsWith('_over_time')) {
     const matrixSelector = body ? getAllByType(expr, body, MatrixSelector)[0] : undefined;
-    const match = matrixSelector?.match(/\[([^\]]+)\]$/);
+    const vectorSelector = body ? getAllByType(expr, body, VectorSelector)[0] : undefined;
+    const match =
+      matrixSelector !== undefined && vectorSelector !== undefined && matrixSelector.startsWith(vectorSelector)
+        ? matrixSelector.slice(vectorSelector.length).match(/^\s*\[([^\]]+)\]$/)
+        : undefined;
     if (match?.[1]) {
       interval = match[1];
       // We were replaced the builtin variables to prevent errors

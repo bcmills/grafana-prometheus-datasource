@@ -120,6 +120,21 @@ describe('PromQueryModeller', () => {
       expect(modeller.renderQuery(parsedQuery.query)).toBe(codeQuery);
     });
 
+    it('reads the range after an unmatched opening bracket inside a label value', () => {
+      const codeQuery = 'increase(example_metric{label="pod[abc"}[5m])';
+      const parsedQuery = buildVisualQueryFromString(codeQuery);
+
+      expect(parsedQuery).toEqual({
+        query: {
+          metric: 'example_metric',
+          labels: [{ label: 'label', op: '=', value: 'pod[abc' }],
+          operations: [{ id: 'increase', params: ['5m'] }],
+        },
+        errors: [],
+      });
+      expect(modeller.renderQuery(parsedQuery.query)).toBe(codeQuery);
+    });
+
     it('preserves all PromQL string escapes through the public parser and modeller', () => {
       const codeQuery = String.raw`example_metric{label="\a\b\f\n\r\t\v\\\"\x2f\141\u263a\U0001f600"}`;
       const parsedQuery = buildVisualQueryFromString(codeQuery);
