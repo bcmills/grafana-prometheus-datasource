@@ -18,11 +18,14 @@ import {
   MatchOp,
   MatrixSelector,
   NumberDurationLiteral,
+  OffsetExpr,
   On,
   ParenExpr,
   parser,
+  StepInvariantExpr,
   StringLiteral,
   SmoothedExpr,
+  SubqueryExpr,
   QuotedLabelMatcher,
   UnquotedLabelMatcher,
   VectorSelector,
@@ -305,21 +308,30 @@ function handleFunction(expr: string, node: SyntaxNode, context: Context) {
   const params = [];
   let interval = '';
 
-  // The Builder models a range selector's interval as a function argument, so read it
-  // from the matrix selector after the vector selector, not from brackets in label values.
-  // Read the source text to preserve template variables that the parser cannot represent.
+  // PromQL puts the range duration after the vector selector; Builder stores it as
+  // a function parameter. Read that suffix of the original expression.
   if (rangeFunctions.includes(funcName) || funcName.endsWith('_over_time')) {
-    const matrixSelector = body ? getAllByType(expr, body, MatrixSelector)[0] : undefined;
-    const vectorSelector = body ? getAllByType(expr, body, VectorSelector)[0] : undefined;
-    const match =
-      matrixSelector !== undefined && vectorSelector !== undefined && matrixSelector.startsWith(vectorSelector)
-        ? matrixSelector.slice(vectorSelector.length).match(/^\s*\[([^\]]+)\]$/)
-        : undefined;
+    const matrixSelector = body ? findFirstNodeByType(body, MatrixSelector) : undefined;
+    const vectorSelector = matrixSelector?.getChild(VectorSelector);
+    const match = vectorSelector
+      ? getString(expr, matrixSelector)
+          .slice(getString(expr, vectorSelector).length)
+          .match(/^\s*\[([^\]]+)\]$/)
+      : undefined;
     if (match?.[1]) {
       interval = match[1];
       // We were replaced the builtin variables to prevent errors
       // Here we return those back
       params.push(returnBuiltInVariable(match[1]));
+    }
+    const unsupportedArgument =
+      body?.getChild(OffsetExpr) ??
+      body?.getChild(StepInvariantExpr) ??
+      body?.getChild(SubqueryExpr) ??
+      (argument?.type.id === FunctionCall ? argument : undefined);
+    if (unsupportedArgument) {
+      // Builder cannot represent nested scalar arguments or range selector modifiers.
+      context.errors.push(makeError(expr, unsupportedArgument));
     }
   }
 
@@ -335,6 +347,19 @@ function handleFunction(expr: string, node: SyntaxNode, context: Context) {
     }
     updateFunctionArgs(expr, body, context, op);
   }
+}
+
+function findFirstNodeByType(node: SyntaxNode, type: number): SyntaxNode | undefined {
+  if (node.type.id === type) {
+    return node;
+  }
+  for (let child = node.firstChild; child; child = child.nextSibling) {
+    const found = findFirstNodeByType(child, type);
+    if (found) {
+      return found;
+    }
+  }
+  return undefined;
 }
 
 /**

@@ -135,6 +135,25 @@ describe('PromQueryModeller', () => {
       expect(modeller.renderQuery(parsedQuery.query)).toBe(codeQuery);
     });
 
+    it('keeps Code mode when a scalar expression cannot be represented as a Builder parameter', () => {
+      const codeQuery = 'quantile_over_time(scalar(example_quantile), example_metric[5m])';
+      const parsedQuery = buildVisualQueryFromString(codeQuery);
+
+      expect(parsedQuery.errors.length).toBeGreaterThan(0);
+      expect(parsedQuery.query.operations).toContainEqual({ id: 'quantile_over_time', params: ['5m'] });
+    });
+
+    it.each([
+      'rate(example_metric[5m] offset 1h)',
+      'rate(example_metric[5m] @ 1234)',
+      'rate(example_metric[5m:1m])',
+      'quantile_over_time(0.9, example_metric[5m] offset 1h)',
+      'quantile_over_time(0.9, example_metric[5m] @ 1234)',
+      'quantile_over_time(0.9, example_metric[5m:1m])',
+    ])('keeps Code mode for a range selector modifier: %s', (codeQuery) => {
+      expect(buildVisualQueryFromString(codeQuery).errors.length).toBeGreaterThan(0);
+    });
+
     it('preserves all PromQL string escapes through the public parser and modeller', () => {
       const codeQuery = String.raw`example_metric{label="\a\b\f\n\r\t\v\\\"\x2f\141\u263a\U0001f600"}`;
       const parsedQuery = buildVisualQueryFromString(codeQuery);
